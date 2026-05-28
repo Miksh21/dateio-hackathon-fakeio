@@ -37,12 +37,14 @@ export default async function ResultsPage({
   const people = (peopleData ?? []) as Person[];
   const targetPerson = people.find((p) => p.id === target);
 
-  const [{ data: aggData }, { data: txtData }, { data: qData }, { data: vmData }] = await Promise.all([
+  const [{ data: aggData }, { data: txtData }, { data: qData }, { data: vmData }, { data: sumData }] = await Promise.all([
     supabase.from("v_received_aggregated").select("question_id,response_count,avg_scale").eq("cycle_id", CYCLE).eq("recipient_id", target),
     supabase.from("v_received_text_anon").select("response_id,question_id,text_value").eq("cycle_id", CYCLE).eq("recipient_id", target),
     supabase.from("questions").select("id,text,category,type").eq("cycle_id", CYCLE).order("sort_order"),
     supabase.from("v_value_matrix").select("recipient_id,first_name,last_name,self_value,manager_value").eq("cycle_id", CYCLE),
+    supabase.from("result_summaries").select("ai_summary,theme_tags").eq("cycle_id", CYCLE).eq("recipient_id", target).eq("scope", "overall").maybeSingle(),
   ]);
+  const summary = sumData as { ai_summary: string | null; theme_tags: string[] | null } | null;
 
   const qmap = new Map(((qData ?? []) as Q[]).map((q) => [q.id, q]));
   const scaleRows = ((aggData ?? []) as Agg[])
@@ -72,6 +74,20 @@ export default async function ResultsPage({
       <p className="mb-4 mt-8 text-sm text-gray-500">
         Detail: <span className="font-medium">{targetPerson ? `${targetPerson.first_name} ${targetPerson.last_name}` : "You"}</span>
       </p>
+
+      {summary?.ai_summary && (
+        <section className="mb-6 rounded-xl bg-indigo-50 p-4 ring-1 ring-indigo-200">
+          <h2 className="mb-1 text-sm font-medium text-indigo-900">AI summary</h2>
+          <p className="text-sm text-indigo-950">{summary.ai_summary}</p>
+          {summary.theme_tags && summary.theme_tags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {summary.theme_tags.map((t) => (
+                <span key={t} className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-800">{t}</span>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {people.length > 1 && (
         <form method="get" className="mb-6">
