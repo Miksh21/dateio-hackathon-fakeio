@@ -1,65 +1,64 @@
-import Image from "next/image";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCurrentEmployee } from "@/lib/auth";
+import { hasSupabaseEnv } from "@/lib/env";
+import { dict } from "@/lib/i18n";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+export default async function Home() {
+  if (!hasSupabaseEnv()) {
+    return (
+      <main className="flex min-h-screen items-center justify-center p-6">
+        <div className="max-w-md rounded-xl bg-white p-6 text-sm ring-1 ring-gray-200">
+          <h1 className="mb-2 text-lg font-semibold">Setup needed</h1>
+          <p className="text-gray-600">
+            Set <code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in{" "}
+            <code className="rounded bg-gray-100 px-1">apps/web/.env.local</code> and restart{" "}
+            <code className="rounded bg-gray-100 px-1">npm run dev</code>.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
       </main>
-    </div>
+    );
+  }
+
+  const me = await getCurrentEmployee();
+  if (!me) redirect("/login");
+
+  const t = dict.en;
+  const cards = [
+    { href: "/forms", title: t.myForms, sub: "Give your feedback", show: true },
+    { href: "/results", title: t.results, sub: "Feedback you received", show: true },
+    { href: "/admin", title: t.admin, sub: "Cycles, graph, questions", show: me.is_super_admin },
+  ].filter((c) => c.show);
+
+  return (
+    <main className="mx-auto max-w-3xl p-6">
+      <header className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">{t.appName}</h1>
+          <p className="text-sm text-gray-500">
+            {me.first_name} {me.last_name} · {me.role}
+            {me.is_super_admin ? " · admin" : ""}
+          </p>
+        </div>
+        <form action="/auth/signout" method="post">
+          <button className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100">
+            {t.signOut}
+          </button>
+        </form>
+      </header>
+
+      <nav className="grid gap-3 sm:grid-cols-3">
+        {cards.map((c) => (
+          <Link
+            key={c.href}
+            href={c.href}
+            className="rounded-xl bg-white p-4 ring-1 ring-gray-200 transition hover:ring-gray-400"
+          >
+            <div className="font-medium">{c.title}</div>
+            <p className="text-sm text-gray-500">{c.sub}</p>
+          </Link>
+        ))}
+      </nav>
+    </main>
   );
 }

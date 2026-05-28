@@ -1,9 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-// Refreshes the Supabase session cookie on each request. No-ops if the anon key
-// isn't configured yet (local setup), so the app still renders.
-export async function middleware(request: NextRequest) {
+// Next.js 16 renamed Middleware -> Proxy (same functionality). This refreshes the
+// Supabase session cookie on each request. No-ops until the anon key is set, so
+// the app still renders during local setup.
+export async function proxy(request: NextRequest) {
   if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     return NextResponse.next({ request });
   }
