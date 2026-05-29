@@ -9,27 +9,22 @@ import { AppHeader } from "@/components/AppHeader";
 import { Card, PageHeader, Badge, EmptyState, cn, type Tone } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { PageGuide } from "@/components/PageGuide";
+import { ReleaseToggle } from "@/components/ReleaseToggle";
 
 const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const SLICES = ["all", "self", "peer", "downward", "upward"] as const;
 type Slice = (typeof SLICES)[number];
+const MODES = ["received", "detailed", "given"] as const;
+type Mode = (typeof MODES)[number];
 
 type Opt = { value: number; en: string; cs: string | null };
 type Q = { id: string; text: string; category: string | null; type: string; options: Opt[] | null };
 type Person = { id: string; first_name: string; last_name: string };
 type ScaleRow = { q: Q; count: number; avg: number | null };
 type TextRow = { response_id: string; question_id: string; text_value: string };
-type GivenRow = {
-  recipient_id: string;
-  recipient_first_name: string;
-  recipient_last_name: string;
-  assignment_type: string;
-  question_id: string;
-  scale_value: number | null;
-  text_value: string | null;
-  choice_value: string | null;
-  sort_order: number;
-};
+type Ans = { scale_value: number | null; text_value: string | null; choice_value: string | null };
+type GivenRow = Ans & { recipient_id: string; recipient_first_name: string; recipient_last_name: string; assignment_type: string; question_id: string; sort_order: number };
+type RawRow = Ans & { giver_id: string; giver_first_name: string; giver_last_name: string; assignment_type: string; question_id: string; sort_order: number };
 type ValueRow = { recipient_id: string; first_name: string; last_name: string; self_value: number | string | null; manager_value: number | string | null };
 
 const TYPE_TONE: Record<string, Tone> = { self: "sky", upward: "lavender", downward: "pearl", peer: "mint" };
@@ -37,7 +32,6 @@ const TYPE_TONE: Record<string, Tone> = { self: "sky", upward: "lavender", downw
 function barColor(pct: number): string {
   return pct >= 70 ? "#3f7178" : pct >= 40 ? "#deb869" : "#e0726a";
 }
-
 function sliceLabel(s: Slice, cs: boolean): string {
   const m: Record<Slice, [string, string]> = {
     all: ["All", "Vše"],
@@ -48,8 +42,15 @@ function sliceLabel(s: Slice, cs: boolean): string {
   };
   return cs ? m[s][1] : m[s][0];
 }
-
-function answerText(q: Q | undefined, g: GivenRow, locale: "en" | "cs"): string {
+function modeLabel(m: Mode, cs: boolean): string {
+  const x: Record<Mode, [string, string]> = {
+    received: ["Received", "Přijatá"],
+    detailed: ["Detailed", "Detailně"],
+    given: ["Given", "Daná"],
+  };
+  return cs ? x[m][1] : x[m][0];
+}
+function answerText(q: Q | undefined, g: Ans, locale: "en" | "cs"): string {
   if (!q) return g.text_value ?? (g.scale_value != null ? String(g.scale_value) : "");
   if (q.type === "text") return g.text_value ?? "";
   if (q.type === "scale_10") return g.scale_value != null ? `${g.scale_value} / 10` : "—";
@@ -71,13 +72,26 @@ export default async function ResultsPage({
   const cs = locale === "cs";
   const sp = await searchParams;
   const target = sp.recipient || me.id;
-  const mode: "received" | "given" = sp.mode === "given" ? "given" : "received";
+  const mode: Mode = (MODES as readonly string[]).includes(sp.mode ?? "") ? (sp.mode as Mode) : "received";
   const slice: Slice = (SLICES as readonly string[]).includes(sp.slice ?? "") ? (sp.slice as Slice) : "all";
 
   const supabase = await createClient();
   const { data: peopleData } = await supabase.from("employees").select("id,first_name,last_name").order("last_name");
   const people = (peopleData ?? []) as Person[];
   const targetPerson = people.find((p) => p.id === target);
+  const isOwn = target === me.id;
+
+  // release toggle (own results, only if you have reports)
+  let hasReports = false;
+  let myReleased = false;
+  if (isOwn) {
+    const [{ count }, { data: rel }] = await Promise.all([
+      supabase.from("employees").select("id", { count: "exact", head: true }).eq("reporting_to_id", me.id).eq("is_active", true),
+      supabase.from("feedback_releases").select("employee_id").eq("cycle_id", CYCLE).eq("employee_id", me.id).maybeSingle(),
+    ]);
+    hasReports = (count ?? 0) > 0;
+    myReleased = !!rel;
+  }
 
   const { data: qData } = await supabase.from("questions").select("id,text,category,type,options").eq("cycle_id", CYCLE).order("sort_order");
   const questions = (qData ?? []) as Q[];
@@ -89,6 +103,7 @@ export default async function ResultsPage({
   let valuePoints: { id: string; name: string; self: number; mgr: number }[] = [];
   let summary: { ai_summary: string | null; theme_tags: string[] | null } | null = null;
   let given: GivenRow[] = [];
+  let raw: RawRow[] = [];
 
   if (mode === "given") {
     const { data } = await supabase
@@ -98,6 +113,14 @@ export default async function ResultsPage({
       .eq("from_id", target)
       .order("sort_order");
     given = (data ?? []) as GivenRow[];
+  } else if (mode === "detailed") {
+    const { data } = await supabase
+      .from("v_received_raw")
+      .select("giver_id,giver_first_name,giver_last_name,assignment_type,question_id,scale_value,text_value,choice_value,sort_order")
+      .eq("cycle_id", CYCLE)
+      .eq("recipient_id", target)
+      .order("sort_order");
+    raw = (data ?? []) as RawRow[];
   } else if (slice === "self") {
     const { data } = await supabase.from("v_self_assessment").select("question_id,scale_value,text_value").eq("cycle_id", CYCLE).eq("recipient_id", target);
     const rows = (data ?? []) as { question_id: string; scale_value: number | null; text_value: string | null }[];
@@ -123,30 +146,25 @@ export default async function ResultsPage({
     texts = (txtData ?? []) as TextRow[];
   }
 
-  // group given by recipient
-  const givenGroups = [
-    ...given
-      .reduce((m, g) => {
-        const e = m.get(g.recipient_id) ?? { name: `${g.recipient_last_name}, ${g.recipient_first_name}`, type: g.assignment_type, rows: [] as GivenRow[] };
-        e.rows.push(g);
-        m.set(g.recipient_id, e);
-        return m;
-      }, new Map<string, { name: string; type: string; rows: GivenRow[] }>())
-      .values(),
-  ];
+  const group = <T extends { question_id: string }>(rows: T[], keyOf: (r: T) => string, nameOf: (r: T) => string, typeOf: (r: T) => string) =>
+    [...rows.reduce((m, r) => {
+      const e = m.get(keyOf(r)) ?? { name: nameOf(r), type: typeOf(r), rows: [] as T[] };
+      e.rows.push(r);
+      m.set(keyOf(r), e);
+      return m;
+    }, new Map<string, { name: string; type: string; rows: T[] }>()).values()];
+
+  const givenGroups = group(given, (g) => g.recipient_id, (g) => `${g.recipient_last_name}, ${g.recipient_first_name}`, (g) => g.assignment_type);
+  const rawGroups = group(raw, (g) => g.giver_id, (g) => `${g.giver_last_name}, ${g.giver_first_name}`, (g) => g.assignment_type);
 
   const hasReceived = scaleRows.length > 0 || texts.length > 0;
   const resGuide = [
-    cs
-      ? "Přijatá je souhrnná a anonymní; Daná jsou vlastní odpovědi tak, jak byly zadány."
-      : "Received is aggregated and anonymized; Given is the person's own answers, as entered.",
-    cs
-      ? "U Přijaté rozdělte zpětnou vazbu podle zdroje (kolegové, manažer, podřízení, sebehodnocení)."
-      : "Under Received, break feedback down by source (peers, manager, reports, self).",
+    cs ? "Přijatá je souhrnná a anonymní; Detailně ukazuje, kdo co řekl (jen pro podřízené po uvolnění manažerem); Daná jsou vlastní odpovědi." : "Received is aggregated and anonymized; Detailed shows who said what (for reports, after the manager releases); Given is the person's own answers.",
+    cs ? "U Přijaté rozdělte zpětnou vazbu podle zdroje." : "Under Received, break feedback down by source.",
   ];
   if (me.is_super_admin || me.role !== "ic") resGuide.push(cs ? "Nahoře můžete přepnout, čí výsledky zobrazit." : "Use the selector at the top to view another person.");
 
-  const modeHref = (m: "received" | "given") => `/results?recipient=${target}&mode=${m}${m === "received" ? `&slice=${slice}` : ""}`;
+  const modeHref = (m: Mode) => `/results?recipient=${target}&mode=${m}${m === "received" ? `&slice=${slice}` : ""}`;
 
   return (
     <>
@@ -154,7 +172,7 @@ export default async function ResultsPage({
       <main className="mx-auto max-w-3xl px-4 py-8">
         <PageHeader
           title={t.results}
-          subtitle={targetPerson && targetPerson.id !== me.id ? `${targetPerson.first_name} ${targetPerson.last_name}` : cs ? "Vaše zpětná vazba" : "Your feedback"}
+          subtitle={targetPerson && !isOwn ? `${targetPerson.first_name} ${targetPerson.last_name}` : cs ? "Vaše zpětná vazba" : "Your feedback"}
           action={
             people.length > 1 ? (
               <form method="get" className="flex items-center gap-2">
@@ -175,28 +193,21 @@ export default async function ResultsPage({
 
         <PageGuide id="results" title={cs ? "Jak číst výsledky" : "Reading your results"} points={resGuide} />
 
-        {/* received vs given */}
+        {isOwn && hasReports && <ReleaseToggle cycleId={CYCLE} employeeId={me.id} released={myReleased} locale={locale} />}
+
         <div className="mb-4 inline-flex rounded-xl bg-black/[0.04] p-1">
-          {(["received", "given"] as const).map((m) => (
-            <Link
-              key={m}
-              href={modeHref(m)}
-              className={cn("rounded-lg px-4 py-1.5 text-sm font-medium transition", mode === m ? "bg-white text-ink shadow-sm" : "text-ink-600 hover:text-ink")}
-            >
-              {m === "received" ? (cs ? "Přijatá (souhrn)" : "Received (aggregated)") : cs ? "Daná (jak je)" : "Given (as-is)"}
+          {MODES.map((m) => (
+            <Link key={m} href={modeHref(m)} className={cn("rounded-lg px-3.5 py-1.5 text-sm font-medium transition", mode === m ? "bg-white text-ink shadow-sm" : "text-ink-600 hover:text-ink")}>
+              {modeLabel(m, cs)}
             </Link>
           ))}
         </div>
 
-        {mode === "received" ? (
+        {mode === "received" && (
           <>
             <div className="mb-6 flex flex-wrap gap-2">
               {SLICES.map((s) => (
-                <Link
-                  key={s}
-                  href={`/results?recipient=${target}&mode=received&slice=${s}`}
-                  className={cn("rounded-lg px-3 py-1.5 text-sm font-medium transition", slice === s ? "bg-ink text-white" : "bg-white text-ink-600 ring-1 ring-black/10 hover:text-ink")}
-                >
+                <Link key={s} href={`/results?recipient=${target}&mode=received&slice=${s}`} className={cn("rounded-lg px-3 py-1.5 text-sm font-medium transition", slice === s ? "bg-ink text-white" : "bg-white text-ink-600 ring-1 ring-black/10 hover:text-ink")}>
                   {sliceLabel(s, cs)}
                 </Link>
               ))}
@@ -273,40 +284,70 @@ export default async function ResultsPage({
               </section>
             )}
           </>
-        ) : (
-          // GIVEN mode
-          <>
-            {givenGroups.length === 0 ? (
-              <EmptyState
-                icon={<Icon name="info" size={22} />}
-                title={cs ? "Žádná daná zpětná vazba" : "No given feedback"}
-                hint={cs ? "Tato osoba zatím nic neodeslala, nebo na to nemáte oprávnění." : "This person hasn't submitted anything yet, or you don't have permission to view it."}
-              />
-            ) : (
-              <div className="space-y-4">
-                {givenGroups.map((grp) => (
-                  <Card key={grp.name} className="p-4">
-                    <div className="mb-3 flex items-center gap-2">
-                      <span className="font-medium text-ink">{grp.name}</span>
-                      <Badge tone={TYPE_TONE[grp.type] ?? "neutral"}>{assignmentTypeLabel(grp.type, locale)}</Badge>
-                    </div>
-                    <ul className="space-y-2.5">
-                      {grp.rows.map((g) => {
-                        const q = qmap.get(g.question_id);
-                        return (
-                          <li key={g.question_id} className="text-sm">
-                            <div className="text-ink-600">{q?.text ?? g.question_id}</div>
-                            <div className="font-medium text-ink">{answerText(q, g, locale)}</div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </>
         )}
+
+        {mode === "detailed" &&
+          (rawGroups.length === 0 ? (
+            <EmptyState
+              icon={<Icon name="info" size={22} />}
+              title={cs ? "Žádná detailní zpětná vazba" : "No detailed feedback here"}
+              hint={cs ? "Detailní (neanonymní) zpětnou vazbu vidí jen podřízení dané osoby — a jen poté, co ji daná osoba uvolní a cyklus je publikován." : "The detailed (named) view is only available to a person's reports — and only after that person releases it and the cycle is published."}
+            />
+          ) : (
+            <div className="space-y-4">
+              <p className="text-xs text-ink-600">{cs ? "Neanonymní — kdo co řekl." : "Named — who said what."}</p>
+              {rawGroups.map((grp) => (
+                <Card key={grp.name} className="p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="font-medium text-ink">{grp.name}</span>
+                    <Badge tone={TYPE_TONE[grp.type] ?? "neutral"}>{assignmentTypeLabel(grp.type, locale)}</Badge>
+                  </div>
+                  <ul className="space-y-2.5">
+                    {grp.rows.map((g) => {
+                      const q = qmap.get(g.question_id);
+                      return (
+                        <li key={g.question_id} className="text-sm">
+                          <div className="text-ink-600">{q?.text ?? g.question_id}</div>
+                          <div className="font-medium text-ink">{answerText(q, g, locale)}</div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </Card>
+              ))}
+            </div>
+          ))}
+
+        {mode === "given" &&
+          (givenGroups.length === 0 ? (
+            <EmptyState
+              icon={<Icon name="info" size={22} />}
+              title={cs ? "Žádná daná zpětná vazba" : "No given feedback"}
+              hint={cs ? "Tato osoba zatím nic neodeslala, nebo na to nemáte oprávnění." : "This person hasn't submitted anything yet, or you don't have permission to view it."}
+            />
+          ) : (
+            <div className="space-y-4">
+              {givenGroups.map((grp) => (
+                <Card key={grp.name} className="p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="font-medium text-ink">{grp.name}</span>
+                    <Badge tone={TYPE_TONE[grp.type] ?? "neutral"}>{assignmentTypeLabel(grp.type, locale)}</Badge>
+                  </div>
+                  <ul className="space-y-2.5">
+                    {grp.rows.map((g) => {
+                      const q = qmap.get(g.question_id);
+                      return (
+                        <li key={g.question_id} className="text-sm">
+                          <div className="text-ink-600">{q?.text ?? g.question_id}</div>
+                          <div className="font-medium text-ink">{answerText(q, g, locale)}</div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </Card>
+              ))}
+            </div>
+          ))}
       </main>
     </>
   );
