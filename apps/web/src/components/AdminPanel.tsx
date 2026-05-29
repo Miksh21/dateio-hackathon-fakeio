@@ -132,8 +132,8 @@ export default function AdminPanel({
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-                <button disabled={busy} onClick={() => importReporting(c.id)} className="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-50">Import reporting graph</button>
-                <AddEdge cycleId={c.id} employees={employees} onDone={() => router.refresh()} />
+                <a href="/admin/graph" className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">Open graph editor →</a>
+                <span className="text-xs text-gray-400">draw the feedback graph by hand (manages / peer)</span>
               </div>
             </div>
           );
