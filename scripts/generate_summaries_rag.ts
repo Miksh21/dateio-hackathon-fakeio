@@ -394,14 +394,15 @@ for (const row of recipients) {
     .from("result_summaries")
     .upsert(
       {
-        cycle_id:      cycleId,
-        recipient_id:  recipientId,
-        scope:         "rag_full",
+        cycle_id:          cycleId,
+        recipient_id:      recipientId,
+        scope:             "rag_full",
         // Write summary only if no escalation — escalated rows are kept null until admin approves.
-        ai_summary:    output.escalation_required ? null : output.summary,
-        theme_tags:    output.escalation_required ? null : output.theme_tags,
-        review_status: output.escalation_required ? "under_review" : "ready",
-        computed_at:   new Date().toISOString(),
+        ai_summary:        output.escalation_required ? null : output.summary,
+        theme_tags:        output.escalation_required ? null : output.theme_tags,
+        structured_output: output.escalation_required ? null : output,
+        review_status:     output.escalation_required ? "under_review" : "ready",
+        computed_at:       new Date().toISOString(),
       },
       { onConflict: "cycle_id,recipient_id,scope" },
     );
