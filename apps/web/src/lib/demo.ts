@@ -19,11 +19,16 @@ export const DEMO_MODE = true;
 // Shared password set on these accounts (see scripts/set_demo_pw). Demo only.
 export const DEMO_PASSWORD = "DemoFakeio360!";
 
+// Fallback shown only if the live demo_roster() RPC is slow/unavailable. Kept in
+// sync with demo_roster() (the 5 @dateio.eu demo personas + admins) so the picker
+// never flashes stale names. Ordered admins-first, then by last name — same as the RPC.
 export const DEMO_USERS: DemoUser[] = [
-  { email: "jitka.bartonikova@dateio.eu", first_name: "Jitka", last_name: "Bartoníková", role: "manager", division: "Management", is_super_admin: true },
-  { email: "michaela.fialova@dateio.eu", first_name: "Michaela", last_name: "Fialová", role: "manager", division: "Management", is_super_admin: true },
-  { email: "lenka.vicenikova@dateio.eu", first_name: "Lenka", last_name: "Viceníková", role: "manager", division: "Management", is_super_admin: true },
-  { email: "vojtech.sladecek@dateio.eu", first_name: "Vojtěch", last_name: "Sládeček", role: "ic", division: "RevOps", is_super_admin: false },
-  { email: "vojtech.rabyniuk@tapix.io", first_name: "Vojtěch", last_name: "Rabyniuk", role: "ic", division: "RevOps", is_super_admin: false },
-  { email: "jan.mikes@dateio.eu", first_name: "Jan", last_name: "Mikeš", role: "ic", division: "RevOps", is_super_admin: false },
+  { email: "rachel.green@fakeio.eu", first_name: "Rachel", last_name: "Green", role: "manager", division: "People", is_super_admin: true },
+  { email: "jan.mikes21@gmail.com", first_name: "Jan", last_name: "Mikeš", role: "manager", division: "Management", is_super_admin: true },
+  { email: "vsladecek1@gmail.com", first_name: "Vojtěch", last_name: "Sládeček", role: "ic", division: "People", is_super_admin: true },
+  { email: "neo.anderson@dateio.eu", first_name: "Neo", last_name: "Anderson", role: "manager", division: "Data - infra", is_super_admin: false },
+  { email: "steve.jobs@dateio.eu", first_name: "Steve", last_name: "Jobs", role: "ceo", division: "Management", is_super_admin: false },
+  { email: "trinity.matrix@dateio.eu", first_name: "Trinity", last_name: "Matrix", role: "ic", division: "Data - infra", is_super_admin: false },
+  { email: "oracle.smith@dateio.eu", first_name: "Oracle", last_name: "Smith", role: "ic", division: "Data - infra", is_super_admin: false },
+  { email: "morpheus.zion@dateio.eu", first_name: "Morpheus", last_name: "Zion", role: "ic", division: "Data - infra", is_super_admin: false },
 ];
