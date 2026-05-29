@@ -10,6 +10,7 @@ import { Card, PageHeader, Badge, EmptyState, cn, type Tone } from "@/components
 import { Icon } from "@/components/Icon";
 import { PageGuide } from "@/components/PageGuide";
 import { ReleaseToggle } from "@/components/ReleaseToggle";
+import { DownwardReleaseToggle } from "@/components/DownwardReleaseToggle";
 import { ValueMatrix } from "@/components/ValueMatrix";
 
 const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
@@ -27,6 +28,7 @@ type Ans = { scale_value: number | null; text_value: string | null; choice_value
 type GivenRow = Ans & { recipient_id: string; recipient_first_name: string; recipient_last_name: string; assignment_type: string; question_id: string; sort_order: number };
 type RawRow = Ans & { giver_id: string; giver_first_name: string; giver_last_name: string; assignment_type: string; question_id: string; sort_order: number };
 type ValueRow = { recipient_id: string; first_name: string; last_name: string; self_value: number | string | null; manager_value: number | string | null };
+type MgrDownRow = Ans & { manager_id: string; manager_first_name: string; manager_last_name: string; question_id: string; sort_order: number };
 
 const TYPE_TONE: Record<string, Tone> = { self: "sky", upward: "lavender", downward: "pearl", peer: "mint" };
 
@@ -85,13 +87,19 @@ export default async function ResultsPage({
   // release toggle (own results, only if you have reports)
   let hasReports = false;
   let myReleased = false;
+  // per-report downward release state (manager sharing the feedback THEY gave)
+  let myReports: { id: string; first_name: string; last_name: string; released: boolean }[] = [];
   if (isOwn) {
-    const [{ count }, { data: rel }] = await Promise.all([
-      supabase.from("employees").select("id", { count: "exact", head: true }).eq("reporting_to_id", me.id).eq("is_active", true),
+    const [{ data: repData }, { data: rel }, { data: downRel }] = await Promise.all([
+      supabase.from("employees").select("id,first_name,last_name").eq("reporting_to_id", me.id).eq("is_active", true).order("last_name"),
       supabase.from("feedback_releases").select("employee_id").eq("cycle_id", CYCLE).eq("employee_id", me.id).maybeSingle(),
+      supabase.from("downward_releases").select("report_id").eq("cycle_id", CYCLE).eq("manager_id", me.id),
     ]);
-    hasReports = (count ?? 0) > 0;
+    const reps = (repData ?? []) as Person[];
+    hasReports = reps.length > 0;
     myReleased = !!rel;
+    const releasedSet = new Set(((downRel ?? []) as { report_id: string }[]).map((r) => r.report_id));
+    myReports = reps.map((r) => ({ ...r, released: releasedSet.has(r.id) }));
   }
 
   const { data: qData } = await supabase.from("questions").select("id,text,category,type,options").eq("cycle_id", CYCLE).order("sort_order");
@@ -105,6 +113,10 @@ export default async function ResultsPage({
   let summary: { ai_summary: string | null; theme_tags: string[] | null } | null = null;
   let given: GivenRow[] = [];
   let raw: RawRow[] = [];
+  let mgrDown: MgrDownRow[] = [];
+  // "From manager" for your OWN results is the identified, released manager
+  // feedback (single giver = your manager), gated by v_manager_downward.
+  const ownManagerSlice = mode === "received" && slice === "downward" && isOwn;
 
   if (mode === "given") {
     const { data } = await supabase
@@ -114,6 +126,15 @@ export default async function ResultsPage({
       .eq("from_id", target)
       .order("sort_order");
     given = (data ?? []) as GivenRow[];
+  } else if (ownManagerSlice) {
+    // Identified, released manager feedback for the signed-in report.
+    const { data } = await supabase
+      .from("v_manager_downward")
+      .select("manager_id,manager_first_name,manager_last_name,question_id,scale_value,text_value,choice_value,sort_order")
+      .eq("cycle_id", CYCLE)
+      .eq("recipient_id", target)
+      .order("sort_order");
+    mgrDown = (data ?? []) as MgrDownRow[];
   } else if (mode === "detailed") {
     const { data } = await supabase
       .from("v_received_raw")
@@ -157,6 +178,7 @@ export default async function ResultsPage({
 
   const givenGroups = group(given, (g) => g.recipient_id, (g) => `${g.recipient_last_name}, ${g.recipient_first_name}`, (g) => g.assignment_type);
   const rawGroups = group(raw, (g) => g.giver_id, (g) => `${g.giver_last_name}, ${g.giver_first_name}`, (g) => g.assignment_type);
+  const mgrDownGroups = group(mgrDown, (g) => g.manager_id, (g) => `${g.manager_first_name} ${g.manager_last_name}`, () => "downward");
 
   const hasReceived = scaleRows.length > 0 || texts.length > 0;
   const resGuide = [
@@ -195,6 +217,33 @@ export default async function ResultsPage({
         <PageGuide id="results" title={cs ? "Jak číst výsledky" : "Reading your results"} points={resGuide} />
 
         {isOwn && hasReports && <ReleaseToggle cycleId={CYCLE} employeeId={me.id} released={myReleased} locale={locale} />}
+
+        {isOwn && myReports.length > 0 && (
+          <section className="mb-6">
+            <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink">
+              <Icon name="user" size={16} />
+              {cs ? "Sdílení vaší zpětné vazby s podřízenými" : "Share your feedback with your reports"}
+            </div>
+            <p className="mb-3 text-xs text-ink-600">
+              {cs
+                ? "Pro každého podřízeného rozhodněte, zda mu zpřístupníte zpětnou vazbu, kterou jste mu dali (s vaším jménem). Zobrazí se mu až po publikaci cyklu."
+                : "For each report, choose whether to share the feedback you gave them (with your name). They'll see it once the cycle is published."}
+            </p>
+            <div className="space-y-2">
+              {myReports.map((r) => (
+                <DownwardReleaseToggle
+                  key={r.id}
+                  cycleId={CYCLE}
+                  managerId={me.id}
+                  reportId={r.id}
+                  reportName={`${r.first_name} ${r.last_name}`}
+                  released={r.released}
+                  locale={locale}
+                />
+              ))}
+            </div>
+          </section>
+        )}
 
         <div className="mb-4 inline-flex rounded-xl bg-black/[0.04] p-1">
           {MODES.map((m) => (
@@ -238,12 +287,45 @@ export default async function ResultsPage({
               </Card>
             )}
 
-            {!hasReceived && (
-              <EmptyState
-                icon={<Icon name="info" size={22} />}
-                title={cs ? "Zatím nedostatek odpovědí" : "Not enough responses yet"}
-                hint={slice === "all" ? (cs ? "Kvůli anonymitě se výsledky zobrazí po dosažení prahu nebo po publikování." : "Results appear once the anonymity threshold is met, or when the cycle is published.") : cs ? "V tomto pohledu není dost odpovědí k anonymnímu zobrazení." : "Not enough responses in this view to show anonymously."}
-              />
+            {ownManagerSlice ? (
+              mgrDownGroups.length === 0 ? (
+                <EmptyState
+                  icon={<Icon name="info" size={22} />}
+                  title={cs ? "Manažer zatím nesdílel" : "Not shared by your manager yet"}
+                  hint={cs ? "Váš manažer s vámi zatím nesdílel svou přímou zpětnou vazbu." : "Your manager hasn't shared their direct feedback yet."}
+                />
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-xs text-ink-600">{cs ? "Přímá zpětná vazba od vašeho manažera." : "Direct feedback from your manager."}</p>
+                  {mgrDownGroups.map((grp) => (
+                    <Card key={grp.name} className="p-4">
+                      <div className="mb-3 flex items-center gap-2">
+                        <span className="font-medium text-ink">{grp.name}</span>
+                        <Badge tone={TYPE_TONE.downward ?? "neutral"}>{assignmentTypeLabel("downward", locale)}</Badge>
+                      </div>
+                      <ul className="space-y-2.5">
+                        {grp.rows.map((g) => {
+                          const q = qmap.get(g.question_id);
+                          return (
+                            <li key={g.question_id} className="text-sm">
+                              <div className="text-ink-600">{q?.text ?? g.question_id}</div>
+                              <div className="font-medium text-ink">{answerText(q, g, locale)}</div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </Card>
+                  ))}
+                </div>
+              )
+            ) : (
+              !hasReceived && (
+                <EmptyState
+                  icon={<Icon name="info" size={22} />}
+                  title={cs ? "Zatím nedostatek odpovědí" : "Not enough responses yet"}
+                  hint={slice === "all" ? (cs ? "Kvůli anonymitě se výsledky zobrazí po dosažení prahu nebo po publikování." : "Results appear once the anonymity threshold is met, or when the cycle is published.") : cs ? "V tomto pohledu není dost odpovědí k anonymnímu zobrazení." : "Not enough responses in this view to show anonymously."}
+                />
+              )
             )}
 
             {scaleRows.length > 0 && (
