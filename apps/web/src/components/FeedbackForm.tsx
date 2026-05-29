@@ -77,7 +77,7 @@ export default function FeedbackForm({
 }) {
   const router = useRouter();
   const [answers, setAnswers] = useState<Record<string, Answer>>(initial);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const timers = useRef<Record<string, number>>({});
@@ -101,21 +101,26 @@ export default function FeedbackForm({
   async function save(qid: string, a: Answer) {
     if (!editable) return;
     setSaveState("saving");
-    setError(null);
-    try {
+    const payload = {
+      assignment_id: assignment.id,
+      question_id: qid,
+      scale_value: a.scale_value,
+      text_value: a.text_value,
+      choice_value: a.choice_value,
+    };
+    const attempt = async () => {
       const supabase = createClient();
-      const { error } = await supabase
-        .from("responses")
-        .upsert(
-          { assignment_id: assignment.id, question_id: qid, scale_value: a.scale_value, text_value: a.text_value, choice_value: a.choice_value },
-          { onConflict: "assignment_id,question_id" },
-        );
-      if (error) throw error;
-      setSaveState("saved");
-    } catch (e) {
-      setSaveState("idle");
-      setError(errMsg(e));
+      const { error } = await supabase.from("responses").upsert(payload, { onConflict: "assignment_id,question_id" });
+      return error;
+    };
+    // autosave: retry once on a transient failure; surface a small inline note
+    // (not the big banner) if it still fails.
+    let err = await attempt();
+    if (err) {
+      await new Promise((r) => setTimeout(r, 800));
+      err = await attempt();
     }
+    setSaveState(err ? "error" : "saved");
   }
 
   async function submit() {
@@ -216,6 +221,11 @@ export default function FeedbackForm({
                   <>
                     <Icon name="check" size={13} className="text-aqua" /> {t.saved}
                   </>
+                )}
+                {saveState === "error" && (
+                  <span className="flex items-center gap-1 text-red-600">
+                    <Icon name="info" size={13} /> {cs ? "Nelze uložit — zkuste to znovu" : "Couldn't save — try again"}
+                  </span>
                 )}
               </span>
             </div>
