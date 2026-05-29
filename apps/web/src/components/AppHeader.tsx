@@ -3,6 +3,7 @@ import { Icon, type IconName } from "./Icon";
 import { LocaleToggle } from "./LocaleToggle";
 import { cn } from "./ui";
 import { dict, type Locale } from "@/lib/i18n";
+import { DEMO_MODE } from "@/lib/demo";
 
 type Me = { first_name: string; last_name: string; role: string; is_super_admin: boolean };
 
@@ -18,7 +19,7 @@ export function AppHeader({
   active?: "forms" | "results" | "report" | "admin";
 }) {
   const t = dict[locale];
-  const demo = process.env.DEMO_LOGIN === "1";
+  const demo = DEMO_MODE;
   const nav = (
     [
       { key: "forms", href: "/forms", label: t.myForms, icon: "forms", show: true },

@@ -4,22 +4,14 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { dict, type Locale } from "@/lib/i18n";
+import { DEMO_MODE, DEMO_PASSWORD, DEMO_USERS, type DemoUser } from "@/lib/demo";
 import { buttonClass } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 
-export type DemoUser = {
-  email: string;
-  first_name: string;
-  last_name: string;
-  role: string;
-  division: string | null;
-  is_super_admin: boolean;
-};
-
-export function LoginClient({ demoEnabled, demoUsers }: { demoEnabled: boolean; demoUsers: DemoUser[] }) {
+export function LoginClient() {
   const router = useRouter();
   const [locale, setLocale] = useState<Locale>("en");
-  const [view, setView] = useState<"demo" | "email">(demoEnabled ? "demo" : "email");
+  const [view, setView] = useState<"demo" | "email">(DEMO_MODE ? "demo" : "email");
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -33,14 +25,24 @@ export function LoginClient({ demoEnabled, demoUsers }: { demoEnabled: boolean; 
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return demoUsers
-      .filter((u) => !q || `${u.first_name} ${u.last_name} ${u.email} ${u.division ?? ""}`.toLowerCase().includes(q))
-      .slice(0, 10);
-  }, [query, demoUsers]);
+    return DEMO_USERS.filter(
+      (u) => !q || `${u.first_name} ${u.last_name} ${u.email} ${u.division ?? ""}`.toLowerCase().includes(q),
+    );
+  }, [query]);
 
-  function pickDemo(u: DemoUser) {
+  async function pickDemo(u: DemoUser) {
     setGoingTo(u.email);
-    window.location.assign(`/api/demo-login?email=${encodeURIComponent(u.email)}`);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const { error: sErr } = await supabase.auth.signInWithPassword({ email: u.email, password: DEMO_PASSWORD });
+      if (sErr) throw sErr;
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setGoingTo(null);
+    }
   }
 
   async function requestCode(): Promise<boolean> {
@@ -111,20 +113,21 @@ export function LoginClient({ demoEnabled, demoUsers }: { demoEnabled: boolean; 
           </div>
 
           <div className="p-6">
-            {view === "demo" && demoEnabled ? (
+            {view === "demo" && DEMO_MODE ? (
               <>
                 <p className="mb-1 text-sm font-medium text-ink">{cs ? "Demo přihlášení" : "Demo sign-in"}</p>
                 <p className="mb-4 text-xs text-ink-600">
                   {cs ? "Vyberte osobu a přihlaste se jako ona (jen pro demo)." : "Pick a person and sign in as them (demo only)."}
                 </p>
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  autoFocus
-                  placeholder={cs ? "Hledat osobu…" : "Search a person…"}
-                  className="mb-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-ink-600/50 focus:border-aqua focus:outline-none focus:ring-2 focus:ring-aqua/30"
-                />
-                <ul className="max-h-72 space-y-1 overflow-auto">
+                {DEMO_USERS.length > 6 && (
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={cs ? "Hledat osobu…" : "Search a person…"}
+                    className="mb-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-ink-600/50 focus:border-aqua focus:outline-none focus:ring-2 focus:ring-aqua/30"
+                  />
+                )}
+                <ul className="max-h-80 space-y-1 overflow-auto">
                   {matches.map((u) => (
                     <li key={u.email}>
                       <button
@@ -152,11 +155,7 @@ export function LoginClient({ demoEnabled, demoUsers }: { demoEnabled: boolean; 
                   ))}
                   {matches.length === 0 && <li className="px-1 py-2 text-xs text-ink-600">{cs ? "Nikdo nenalezen." : "No one found."}</li>}
                 </ul>
-                <button
-                  type="button"
-                  onClick={() => setView("email")}
-                  className="mt-4 w-full text-center text-xs text-ink-600 hover:text-ink"
-                >
+                <button type="button" onClick={() => setView("email")} className="mt-4 w-full text-center text-xs text-ink-600 hover:text-ink">
                   {cs ? "Přihlásit se e-mailovým kódem" : "Sign in with an email code instead"}
                 </button>
               </>
@@ -222,7 +221,7 @@ export function LoginClient({ demoEnabled, demoUsers }: { demoEnabled: boolean; 
                     </div>
                   </form>
                 )}
-                {demoEnabled && (
+                {DEMO_MODE && (
                   <button
                     type="button"
                     onClick={() => {
