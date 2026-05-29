@@ -10,6 +10,7 @@ import { Card, PageHeader, Badge, EmptyState, cn, type Tone } from "@/components
 import { Icon } from "@/components/Icon";
 import { PageGuide } from "@/components/PageGuide";
 import { ReleaseToggle } from "@/components/ReleaseToggle";
+import { ValueMatrix } from "@/components/ValueMatrix";
 
 const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const SLICES = ["all", "self", "peer", "downward", "upward"] as const;
@@ -215,7 +216,7 @@ export default async function ResultsPage({
 
             {slice === "all" && valuePoints.length > 0 && (
               <Card className="mb-6">
-                <ValueQuadrant points={valuePoints} targetId={target} locale={locale} />
+                <ValueMatrix points={valuePoints} targetId={target} locale={locale} />
               </Card>
             )}
 
@@ -353,42 +354,3 @@ export default async function ResultsPage({
   );
 }
 
-function ValueQuadrant({ points, targetId, locale }: { points: { id: string; name: string; self: number; mgr: number }[]; targetId: string; locale: "en" | "cs" }) {
-  const cs = locale === "cs";
-  const S = 260;
-  const PAD = 38;
-  const W = S + PAD * 2;
-  const px = (v: number) => PAD + ((v - 1) / 3) * S;
-  const py = (v: number) => PAD + ((4 - v) / 3) * S;
-  const jitter = (id: string) => {
-    let h = 0;
-    for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 997;
-    return (h / 997 - 0.5) * 0.3;
-  };
-  const mid = 2.5;
-  return (
-    <>
-      <h2 className="mb-1 text-sm font-semibold text-ink">
-        {cs ? "Hodnotová mapa" : "Value quadrant"} — {points.length} {cs ? "lidí" : "people"}
-      </h2>
-      <p className="mb-2 text-xs text-ink-600">{cs ? "x: sebehodnocení · y: hodnocení manažera (1 nízké – 4 vysoké)" : "x: self-rated · y: manager-rated (1 low – 4 high)"}</p>
-      <svg viewBox={`0 0 ${W} ${W}`} className="mx-auto w-full max-w-md">
-        <rect x={PAD} y={PAD} width={S} height={S} rx={10} fill="#f3f5f5" stroke="#e2e8e8" />
-        <line x1={px(mid)} y1={PAD} x2={px(mid)} y2={PAD + S} stroke="#d7e0e0" strokeDasharray="4 4" />
-        <line x1={PAD} y1={py(mid)} x2={PAD + S} y2={py(mid)} stroke="#d7e0e0" strokeDasharray="4 4" />
-        <text x={PAD + 6} y={PAD + 15} fontSize="9" fill="#94a3b8">{cs ? "manažer cení víc" : "manager values more"}</text>
-        <text x={PAD + S - 6} y={PAD + 15} fontSize="9" fill="#94a3b8" textAnchor="end">{cs ? "vysoce sladěno" : "aligned high"}</text>
-        <text x={PAD + 6} y={PAD + S - 8} fontSize="9" fill="#94a3b8">{cs ? "nízce sladěno" : "aligned low"}</text>
-        <text x={PAD + S - 6} y={PAD + S - 8} fontSize="9" fill="#94a3b8" textAnchor="end">{cs ? "sám cení víc" : "self values more"}</text>
-        {points.map((p) => {
-          const isT = p.id === targetId;
-          return (
-            <circle key={p.id} cx={px(Math.min(4, Math.max(1, p.self + jitter(p.id))))} cy={py(Math.min(4, Math.max(1, p.mgr + jitter(p.id + "y"))))} r={isT ? 6.5 : 3.5} fill={isT ? "#3f7178" : "#94a3b8"} fillOpacity={isT ? 1 : 0.55}>
-              <title>{p.name}: self {p.self}, mgr {p.mgr}</title>
-            </circle>
-          );
-        })}
-      </svg>
-    </>
-  );
-}
