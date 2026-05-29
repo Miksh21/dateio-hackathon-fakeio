@@ -43,8 +43,8 @@ type Rel = {
 type Props = { cycleId: string; employees: Emp[]; relationships: Rel[] };
 
 const NODE_W = 200;
-const X_STEP = 240;
-const Y_STEP = 130;
+const COL_W = 250; // gap between hierarchy levels (left → right)
+const ROW_H = 46; // gap between stacked siblings / leaves (top → bottom)
 
 // Tidy top-down layout from the "manages" edges only: managers above their reports,
 // parents centered over children, siblings (incl. peers) side-by-side — never stacked.
@@ -61,33 +61,35 @@ function computeLayout(emps: Emp[], manages: { from: string; to: string }[]): Ma
   const pos = new Map<string, { x: number; y: number }>();
   const visited = new Set<string>();
   let leaf = 0;
+  // Left-to-right tree: depth -> x (a handful of columns), siblings stacked on y.
+  // Keeps the chart narrow + tall instead of thousands of px wide.
   const place = (id: string, depth: number): number => {
     visited.add(id);
     const kids = (childrenOf.get(id) ?? []).filter((k) => ids.has(k) && !visited.has(k));
-    let x: number;
+    let y: number;
     if (kids.length === 0) {
-      x = leaf * X_STEP;
+      y = leaf * ROW_H;
       leaf++;
     } else {
-      const xs = kids.map((k) => place(k, depth + 1));
-      x = (xs[0] + xs[xs.length - 1]) / 2;
+      const ys = kids.map((k) => place(k, depth + 1));
+      y = (ys[0] + ys[ys.length - 1]) / 2;
     }
-    pos.set(id, { x, y: depth * Y_STEP });
-    return x;
+    pos.set(id, { x: depth * COL_W, y });
+    return y;
   };
   // tree roots: a manager/CEO with no manager of their own
   emps
     .filter((e) => !parentOf.has(e.id) && (childrenOf.get(e.id)?.length ?? 0) > 0)
     .forEach((e) => place(e.id, 0));
-  // everyone left over (unconnected, or peer-only) → grid below the deepest tree row
+  // everyone left over (unconnected, or peer-only) → compact grid below the tree
   let maxY = 0;
   pos.forEach((p) => (maxY = Math.max(maxY, p.y)));
-  const top = pos.size ? maxY + Y_STEP * 1.4 : 0;
+  const top = pos.size ? maxY + ROW_H * 2 : 0;
   const perRow = Math.max(6, Math.ceil(Math.sqrt(emps.length)));
   let i = 0;
   for (const e of emps) {
     if (pos.has(e.id)) continue;
-    pos.set(e.id, { x: (i % perRow) * X_STEP, y: top + Math.floor(i / perRow) * 84 });
+    pos.set(e.id, { x: (i % perRow) * (NODE_W + 24), y: top + Math.floor(i / perRow) * ROW_H });
     i++;
   }
   return pos;
@@ -136,8 +138,9 @@ function relToEdge(r: Rel): Edge {
     id: r.id,
     source: r.from_employee_id,
     target: r.to_employee_id,
-    sourceHandle: peer ? "r" : "b",
-    targetHandle: peer ? "l" : "t",
+    // manages flows left → right (manager's right → report's left); peers link vertically
+    sourceHandle: peer ? "b" : "r",
+    targetHandle: peer ? "t" : "l",
     type: peer ? "straight" : "smoothstep",
     animated: !peer,
     data: { rel: r.relationship_type, origin: r.origin ?? "updated" },
@@ -241,8 +244,8 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             relationship currently selected in the builder.
           </li>
           <li>
-            <span className="font-medium">manages</span> = solid arrow, top → bottom.{" "}
-            <span className="font-medium">peer</span> = dashed line, side-to-side (one per pair).{" "}
+            <span className="font-medium">manages</span> = arrow from manager → report (left to right).{" "}
+            <span className="font-medium">peer</span> = dashed link (one per pair).{" "}
             <span className="font-medium text-slate-500">Grey</span> = an{" "}
             <span className="font-medium">original</span> reporting line;{" "}
             <span className="font-medium text-aqua">aqua</span> = an{" "}
