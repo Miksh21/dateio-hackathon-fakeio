@@ -1,0 +1,325 @@
+{
+  "name": "360° RAG Summary Pipeline",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook — Cycle Published",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cycle-published",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "webhookId": "cycle-published-rag"
+    },
+    {
+      "id": "get-recipients",
+      "name": "Get recipients_for_summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [480, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/recipients_for_summary",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "p_cycle_id", "value": "={{ $json.cycle_id }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "split-recipients",
+      "name": "Loop over recipients",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [720, 300],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+    {
+      "id": "get-payload",
+      "name": "Get feedback_ingestion_payload",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [960, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/feedback_ingestion_payload",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "p_cycle_id",     "value": "={{ $('Webhook — Cycle Published').item.json.cycle_id }}" },
+            { "name": "p_recipient_id", "value": "={{ $json.recipient_id }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "build-chunks",
+      "name": "Build text chunks + sanitize",
+      "type": "n8n-nodes-base.code",
+      "position": [1200, 200],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Build chunk_text strings from the ingestion payload.\n// Each chunk = one question × assignment_type group.\n// Prepend proportionality context so it's embedded in the vector.\n\nconst INJECTION_PATTERNS = [\n  /ignore\\s+(all\\s+)?(previous|prior|above)\\s+(instructions?|prompts?|context)/gi,\n  /you\\s+are\\s+now\\s+/gi,\n  /\\bsystem\\s*:/gi,\n  /\\bassistant\\s*:/gi,\n  /<\\/?(?:system|assistant|user|prompt|instruction)[^>]*>/gi,\n];\n\nfunction sanitize(text) {\n  let s = String(text).trim();\n  for (const p of INJECTION_PATTERNS) s = s.replace(p, '[removed]');\n  return s.replace(/\\s+/g, ' ').trim();\n}\n\nconst LABELS = { peer:'peer', upward:'direct report', downward:'manager', self:'self' };\n\nfunction label(type) { return LABELS[type] ?? type; }\n\nconst payload = $input.item.json;\nconst cycleId = $('Webhook — Cycle Published').item.json.cycle_id;\nconst recipientId = payload.recipient?.id;\nconst chunks = [];\n\n// Text chunks\nfor (const g of payload.question_groups ?? []) {\n  if (!g.comments?.length) continue;\n  const l = label(g.assignment_type);\n  const prop = `${g.giver_count} of ${g.total_givers} ${l}${g.total_givers !== 1 ? 's' : ''} responded`;\n  const lines = g.comments.map(c => `- ${sanitize(c)}`).join('\\n');\n  chunks.push({\n    cycle_id: cycleId,\n    recipient_id: recipientId,\n    question_id: g.question_id,\n    category: g.category ?? 'General',\n    assignment_type: g.assignment_type,\n    giver_count: g.giver_count,\n    total_givers: g.total_givers,\n    chunk_text: `Question: ${g.question_text}\\nRespondent group: ${l} (${prop}):\\n${lines}`,\n  });\n}\n\n// Ratings chunks grouped by assignment_type × category\nconst ratingMap = {};\nfor (const r of payload.ratings ?? []) {\n  const key = `${r.assignment_type}::${r.category ?? 'General'}`;\n  (ratingMap[key] ??= []).push(r);\n}\nfor (const [key, rows] of Object.entries(ratingMap)) {\n  const [at, cat] = key.split('::');\n  const totalGivers = Math.max(...rows.map(r => r.total_givers));\n  const lines = rows.map(r => `  ${r.question_text}: avg ${r.avg_score}/5 (${r.response_count} ratings)`).join('\\n');\n  chunks.push({\n    cycle_id: cycleId,\n    recipient_id: recipientId,\n    question_id: null,\n    category: cat,\n    assignment_type: `${at}_ratings`,\n    giver_count: totalGivers,\n    total_givers: totalGivers,\n    chunk_text: `Numeric ratings — ${cat} — from ${label(at)}s (${totalGivers} respondents):\\n${lines}`,\n  });\n}\n\nreturn chunks.map(c => ({ json: c }));"
+      }
+    },
+    {
+      "id": "embed-chunks",
+      "name": "Embed chunks (OpenAI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1440, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $vars.OPENAI_API_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={ \"model\": \"text-embedding-3-small\", \"input\": [{{ $json.chunk_text }}], \"dimensions\": 1536 }"
+      }
+    },
+    {
+      "id": "upsert-chunks",
+      "name": "Upsert feedback_chunks",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1680, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/feedback_chunks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "resolution=merge-duplicates" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"cycle_id\": \"{{ $('Build text chunks + sanitize').item.json.cycle_id }}\",\n  \"recipient_id\": \"{{ $('Build text chunks + sanitize').item.json.recipient_id }}\",\n  \"question_id\": {{ $('Build text chunks + sanitize').item.json.question_id ? `\"${$('Build text chunks + sanitize').item.json.question_id}\"` : 'null' }},\n  \"category\": \"{{ $('Build text chunks + sanitize').item.json.category }}\",\n  \"assignment_type\": \"{{ $('Build text chunks + sanitize').item.json.assignment_type }}\",\n  \"chunk_text\": {{ JSON.stringify($('Build text chunks + sanitize').item.json.chunk_text) }},\n  \"giver_count\": {{ $('Build text chunks + sanitize').item.json.giver_count }},\n  \"total_givers\": {{ $('Build text chunks + sanitize').item.json.total_givers }},\n  \"embedding\": {{ JSON.stringify($json.data[0].embedding) }}\n}"
+      }
+    },
+    {
+      "id": "get-all-chunks",
+      "name": "Get all chunks for generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1920, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/get_recipient_chunks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "p_cycle_id",     "value": "={{ $('Webhook — Cycle Published').item.json.cycle_id }}" },
+            { "name": "p_recipient_id", "value": "={{ $('Loop over recipients').item.json.recipient_id }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "build-prompt",
+      "name": "Build Anthropic prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [2160, 300],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Assemble the generation context from all chunks for this recipient.\n// Groups chunks by assignment_type for structured presentation.\n\nconst chunks = $input.all().map(i => i.json);\nif (!chunks.length) return [{ json: { skip: true } }];\n\nconst recipientName = $('Loop over recipients').item.json._recipient_name ?? 'the employee';\nconst jobTitle      = $('Loop over recipients').item.json._job_title ?? 'Employee';\n\nconst TYPE_LABEL = {\n  peer:              'PEER FEEDBACK (colleagues at the same level)',\n  upward:            'UPWARD FEEDBACK (from direct reports)',\n  downward:          'DOWNWARD FEEDBACK (from manager)',\n  self:              'SELF-ASSESSMENT',\n  peer_ratings:      'PEER NUMERIC RATINGS',\n  upward_ratings:    'UPWARD NUMERIC RATINGS (from direct reports)',\n  downward_ratings:  'DOWNWARD NUMERIC RATINGS (from manager)',\n  self_ratings:      'SELF NUMERIC RATINGS',\n};\nconst ORDER = Object.keys(TYPE_LABEL);\n\nconst groups = {};\nfor (const c of chunks) {\n  (groups[c.assignment_type] ??= []).push(c.chunk_text);\n}\n\nconst sorted = ORDER.filter(t => groups[t])\n  .concat(Object.keys(groups).filter(t => !ORDER.includes(t)));\n\nconst sections = [\n  `Recipient: ${recipientName} — ${jobTitle}`,\n  '',\n  'You are summarizing 360° feedback collected for this person.',\n  'All feedback text below is anonymized (givers are not identified).',\n  '',\n  '<feedback_context>',\n];\n\nfor (const type of sorted) {\n  sections.push(`\\n── ${TYPE_LABEL[type] ?? type.toUpperCase()} ──`);\n  for (const text of groups[type]) sections.push(`\\n${text}`);\n}\n\nsections.push('</feedback_context>');\nsections.push('');\nsections.push('Generate the summary JSON following the rules in the system prompt.');\n\nreturn [{ json: { user_message: sections.join('\\n') } }];"
+      }
+    },
+    {
+      "id": "call-claude",
+      "name": "Generate summary (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [2400, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",         "value": "={{ $vars.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version",  "value": "2023-06-01" },
+            { "name": "Content-Type",       "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 2048,\n  \"system\": {{ JSON.stringify($vars.RAG_SYSTEM_PROMPT) }},\n  \"messages\": [{ \"role\": \"user\", \"content\": {{ JSON.stringify($json.user_message) }} }]\n}"
+      }
+    },
+    {
+      "id": "parse-output",
+      "name": "Parse Claude JSON output",
+      "type": "n8n-nodes-base.code",
+      "position": [2640, 300],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const raw = $input.item.json.content?.[0]?.text ?? '';\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i,'').replace(/\\s*```$/i,'').trim();\ntry {\n  const parsed = JSON.parse(cleaned);\n  return [{ json: { ...parsed, _raw: raw } }];\n} catch(e) {\n  return [{ json: { _parse_error: e.message, _raw: raw.slice(0,500) } }];\n}"
+      }
+    },
+    {
+      "id": "check-escalation",
+      "name": "Escalation required?",
+      "type": "n8n-nodes-base.if",
+      "position": [2880, 300],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{ $json.escalation_required }}", "value2": true, "operation": "equal" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "log-escalation",
+      "name": "Log escalation to audit_logs",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [3120, 180],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/audit_logs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"action\": \"rag_escalation_flagged\",\n  \"target_table\": \"result_summaries\",\n  \"meta\": {\n    \"cycle_id\": \"{{ $('Webhook — Cycle Published').item.json.cycle_id }}\",\n    \"recipient_id\": \"{{ $('Loop over recipients').item.json.recipient_id }}\",\n    \"escalation_note\": {{ JSON.stringify($('Parse Claude JSON output').item.json.escalation_note) }}\n  }\n}"
+      }
+    },
+    {
+      "id": "upsert-summary",
+      "name": "Upsert result_summaries",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [3120, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/result_summaries",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "resolution=merge-duplicates" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"cycle_id\":     \"{{ $('Webhook — Cycle Published').item.json.cycle_id }}\",\n  \"recipient_id\": \"{{ $('Loop over recipients').item.json.recipient_id }}\",\n  \"scope\":        \"rag_full\",\n  \"ai_summary\":   {{ JSON.stringify($('Parse Claude JSON output').item.json.summary) }},\n  \"theme_tags\":   {{ JSON.stringify($('Parse Claude JSON output').item.json.theme_tags) }},\n  \"computed_at\":  \"{{ new Date().toISOString() }}\"\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook — Cycle Published": {
+      "main": [[{ "node": "Get recipients_for_summary", "type": "main", "index": 0 }]]
+    },
+    "Get recipients_for_summary": {
+      "main": [[{ "node": "Loop over recipients", "type": "main", "index": 0 }]]
+    },
+    "Loop over recipients": {
+      "main": [
+        [{ "node": "Get feedback_ingestion_payload", "type": "main", "index": 0 }],
+        [{ "node": "Get all chunks for generation",  "type": "main", "index": 0 }]
+      ]
+    },
+    "Get feedback_ingestion_payload": {
+      "main": [[{ "node": "Build text chunks + sanitize", "type": "main", "index": 0 }]]
+    },
+    "Build text chunks + sanitize": {
+      "main": [[{ "node": "Embed chunks (OpenAI)", "type": "main", "index": 0 }]]
+    },
+    "Embed chunks (OpenAI)": {
+      "main": [[{ "node": "Upsert feedback_chunks", "type": "main", "index": 0 }]]
+    },
+    "Get all chunks for generation": {
+      "main": [[{ "node": "Build Anthropic prompt", "type": "main", "index": 0 }]]
+    },
+    "Build Anthropic prompt": {
+      "main": [[{ "node": "Generate summary (Claude)", "type": "main", "index": 0 }]]
+    },
+    "Generate summary (Claude)": {
+      "main": [[{ "node": "Parse Claude JSON output", "type": "main", "index": 0 }]]
+    },
+    "Parse Claude JSON output": {
+      "main": [[{ "node": "Escalation required?", "type": "main", "index": 0 }]]
+    },
+    "Escalation required?": {
+      "main": [
+        [{ "node": "Log escalation to audit_logs", "type": "main", "index": 0 }],
+        [{ "node": "Upsert result_summaries",      "type": "main", "index": 0 }]
+      ]
+    },
+    "Log escalation to audit_logs": {
+      "main": [[{ "node": "Upsert result_summaries", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "notes": "RAG summarization pipeline for 360° feedback.\n\nRequired n8n Variables (Settings > Variables):\n  SUPABASE_URL               — your Supabase project URL\n  SUPABASE_SERVICE_ROLE_KEY  — service role key (never anon key)\n  OPENAI_API_KEY             — for text-embedding-3-small\n  ANTHROPIC_API_KEY          — for claude-sonnet-4-6\n  RAG_SYSTEM_PROMPT          — paste the full system prompt from scripts/generate_summaries_rag.ts\n\nTrigger: POST https://<n8n-host>/webhook/cycle-published\nBody:    { \"cycle_id\": \"<uuid>\" }\n\nRun ingest_embeddings.ts manually first if you want to pre-warm the vector store\nbefore triggering this workflow."
+  }
+}
