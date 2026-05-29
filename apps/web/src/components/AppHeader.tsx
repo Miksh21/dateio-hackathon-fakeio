@@ -18,6 +18,7 @@ export function AppHeader({
   active?: "forms" | "results" | "report" | "admin";
 }) {
   const t = dict[locale];
+  const demo = process.env.DEMO_LOGIN === "1";
   const nav = (
     [
       { key: "forms", href: "/forms", label: t.myForms, icon: "forms", show: true },
@@ -34,6 +35,14 @@ export function AppHeader({
           <span className="grid h-7 w-7 place-items-center rounded-lg bg-aqua text-[11px] font-bold">360</span>
           <span className="hidden text-sm sm:inline">{t.appName}</span>
         </Link>
+        {demo && (
+          <span
+            className="mr-1 rounded-full bg-sun/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+            title="Demo sign-in is enabled — anyone can sign in as anyone"
+          >
+            Demo
+          </span>
+        )}
         <nav className="flex items-center gap-0.5">
           {nav.map((n) => (
             <Link
