@@ -7,6 +7,7 @@ import { dict, type Locale } from "@/lib/i18n";
 import { DEMO_MODE, DEMO_PASSWORD, DEMO_USERS, type DemoUser } from "@/lib/demo";
 import { buttonClass } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { DateioLogo } from "@/components/DateioLogo";
 
 export function LoginClient() {
   const router = useRouter();
@@ -123,7 +124,7 @@ export function LoginClient() {
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/[0.06]">
           <div className="flex items-center justify-between bg-ink px-6 py-4 text-white">
             <div className="flex items-center gap-2">
-              <span className="grid h-8 w-8 place-items-center rounded-lg bg-aqua text-xs font-bold">360</span>
+              <DateioLogo size={32} />
               <span className="text-sm font-semibold">{t.appName}</span>
             </div>
             <button

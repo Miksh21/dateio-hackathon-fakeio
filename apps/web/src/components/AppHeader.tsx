@@ -4,6 +4,7 @@ import { LocaleToggle } from "./LocaleToggle";
 import { cn } from "./ui";
 import { dict, type Locale } from "@/lib/i18n";
 import { DEMO_MODE } from "@/lib/demo";
+import { DateioLogo } from "./DateioLogo";
 
 type Me = { first_name: string; last_name: string; role: string; is_super_admin: boolean };
 
@@ -33,7 +34,7 @@ export function AppHeader({
     <header className="sticky top-0 z-30 bg-ink text-white shadow-sm">
       <div className="mx-auto flex h-14 max-w-4xl items-center gap-1 px-4">
         <Link href="/" className="mr-2 flex items-center gap-2 font-semibold sm:mr-4">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-aqua text-[11px] font-bold">360</span>
+          <DateioLogo size={28} />
           <span className="hidden text-sm sm:inline">{t.appName}</span>
         </Link>
         {demo && (
