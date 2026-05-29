@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentEmployee } from "@/lib/auth";
 import { hasSupabaseEnv } from "@/lib/env";
 import FeedbackForm from "@/components/FeedbackForm";
+import { getLocale } from "@/lib/locale";
+import { AppHeader } from "@/components/AppHeader";
 import type { Question } from "@/lib/types";
 
 type Answer = { scale_value: number | null; text_value: string | null; choice_value: string | null };
@@ -16,6 +18,7 @@ export default async function FormPage({
   const me = await getCurrentEmployee();
   if (!me) redirect("/login");
   const { assignmentId } = await params;
+  const locale = await getLocale();
 
   const supabase = await createClient();
 
@@ -49,6 +52,7 @@ export default async function FormPage({
     };
   }
 
+  // eslint-disable-next-line react-hooks/purity -- server component; reading the request-time clock is intentional
   const now = Date.now();
   const formOpen =
     (!assignment.form_start || new Date(assignment.form_start).getTime() <= now) &&
@@ -56,19 +60,23 @@ export default async function FormPage({
   const editable = formOpen && assignment.status !== "submitted";
 
   return (
-    <FeedbackForm
-      assignment={{
-        id: assignment.id,
-        type: assignment.type,
-        status: assignment.status,
-        recipient_first_name: assignment.recipient_first_name,
-        recipient_last_name: assignment.recipient_last_name,
-        recipient_job_title: assignment.recipient_job_title,
-        cycle_name: assignment.cycle_name,
-      }}
-      questions={questions}
-      initial={initial}
-      editable={editable}
-    />
+    <>
+      <AppHeader me={me} locale={locale} active="forms" />
+      <FeedbackForm
+        assignment={{
+          id: assignment.id,
+          type: assignment.type,
+          status: assignment.status,
+          recipient_first_name: assignment.recipient_first_name,
+          recipient_last_name: assignment.recipient_last_name,
+          recipient_job_title: assignment.recipient_job_title,
+          cycle_name: assignment.cycle_name,
+        }}
+        questions={questions}
+        initial={initial}
+        editable={editable}
+        locale={locale}
+      />
+    </>
   );
 }

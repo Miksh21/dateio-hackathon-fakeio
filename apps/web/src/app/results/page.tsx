@@ -1,10 +1,14 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentEmployee } from "@/lib/auth";
 import { hasSupabaseEnv } from "@/lib/env";
+import { getLocale } from "@/lib/locale";
+import { dict } from "@/lib/i18n";
+import { AppHeader } from "@/components/AppHeader";
+import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 
-const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc"; // demo cycle (multi-cycle picker later)
+const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 
 type Q = { id: string; text: string; category: string | null; type: string };
 type Agg = { question_id: string; response_count: number; avg_scale: number | string | null };
@@ -18,6 +22,10 @@ type ValueRow = {
   manager_value: number | string | null;
 };
 
+function barColor(pct: number): string {
+  return pct >= 70 ? "#3f7178" : pct >= 40 ? "#deb869" : "#e0726a";
+}
+
 export default async function ResultsPage({
   searchParams,
 }: {
@@ -26,14 +34,14 @@ export default async function ResultsPage({
   if (!hasSupabaseEnv()) redirect("/");
   const me = await getCurrentEmployee();
   if (!me) redirect("/login");
+  const locale = await getLocale();
+  const t = dict[locale];
+  const cs = locale === "cs";
   const sp = await searchParams;
   const target = sp.recipient || me.id;
 
   const supabase = await createClient();
-  const { data: peopleData } = await supabase
-    .from("employees")
-    .select("id,first_name,last_name")
-    .order("last_name");
+  const { data: peopleData } = await supabase.from("employees").select("id,first_name,last_name").order("last_name");
   const people = (peopleData ?? []) as Person[];
   const targetPerson = people.find((p) => p.id === target);
 
@@ -65,96 +73,134 @@ export default async function ResultsPage({
   const hasTargetData = scaleRows.length > 0 || texts.length > 0;
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <Link href="/" className="text-sm text-gray-500 hover:text-gray-900">← Home</Link>
-      <h1 className="mb-1 mt-1 text-2xl font-semibold">Results</h1>
+    <>
+      <AppHeader me={me} locale={locale} active="results" />
+      <main className="mx-auto max-w-3xl px-4 py-8">
+        <PageHeader
+          title={t.results}
+          subtitle={
+            targetPerson && targetPerson.id !== me.id
+              ? `${targetPerson.first_name} ${targetPerson.last_name}`
+              : cs
+                ? "Zpětná vazba, kterou jste dostali"
+                : "Feedback you received"
+          }
+          action={
+            people.length > 1 ? (
+              <form method="get" className="flex items-center gap-2">
+                <select
+                  name="recipient"
+                  defaultValue={target}
+                  className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-ink focus:border-aqua focus:outline-none"
+                >
+                  {people.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.last_name}, {p.first_name}
+                    </option>
+                  ))}
+                </select>
+                <button className="rounded-xl bg-ink px-3 py-2 text-sm font-medium text-white hover:bg-ink/90">
+                  {cs ? "Zobrazit" : "View"}
+                </button>
+              </form>
+            ) : undefined
+          }
+        />
 
-      {valuePoints.length > 0 && <ValueQuadrant points={valuePoints} targetId={target} />}
+        {valuePoints.length > 0 && (
+          <Card className="mb-6">
+            <ValueQuadrant points={valuePoints} targetId={target} locale={locale} />
+          </Card>
+        )}
 
-      <p className="mb-4 mt-8 text-sm text-gray-500">
-        Detail: <span className="font-medium">{targetPerson ? `${targetPerson.first_name} ${targetPerson.last_name}` : "You"}</span>
-      </p>
+        {summary?.ai_summary && (
+          <Card className="mb-6 bg-mint-light ring-mint">
+            <h2 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-aqua-700">
+              <Icon name="sparkles" size={16} /> {cs ? "AI shrnutí" : "AI summary"}
+            </h2>
+            <p className="text-sm text-ink">{summary.ai_summary}</p>
+            {summary.theme_tags && summary.theme_tags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {summary.theme_tags.map((tag) => (
+                  <Badge key={tag} tone="aqua">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
 
-      {summary?.ai_summary && (
-        <section className="mb-6 rounded-xl bg-indigo-50 p-4 ring-1 ring-indigo-200">
-          <h2 className="mb-1 text-sm font-medium text-indigo-900">AI summary</h2>
-          <p className="text-sm text-indigo-950">{summary.ai_summary}</p>
-          {summary.theme_tags && summary.theme_tags.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {summary.theme_tags.map((t) => (
-                <span key={t} className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-800">{t}</span>
+        {!hasTargetData && (
+          <EmptyState
+            icon={<Icon name="info" size={22} />}
+            title={cs ? "Zatím nedostatek odpovědí" : "Not enough responses yet"}
+            hint={cs ? "Kvůli anonymitě se výsledky zobrazí až po dosažení prahu, nebo až bude cyklus publikován." : "Results appear once the anonymity threshold is met, or when the cycle is published."}
+          />
+        )}
+
+        {scaleRows.length > 0 && (
+          <section className="mb-8">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-600">
+              {cs ? "Hodnocení (průměr)" : "Ratings (average)"}
+            </h2>
+            <div className="space-y-3">
+              {scaleRows.map(({ q, count, avg }) => {
+                const max = q.type === "scale_10" ? 10 : 5;
+                const pct = avg ? (avg / max) * 100 : 0;
+                return (
+                  <Card key={q.id} className="p-4">
+                    <div className="mb-2 flex items-start justify-between gap-3 text-sm">
+                      <span className="text-ink">{q.text}</span>
+                      <span className="whitespace-nowrap font-semibold text-ink">
+                        {avg?.toFixed(1)} <span className="text-ink-600">/ {max}</span>
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-black/[0.07]">
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: barColor(pct) }} />
+                    </div>
+                    <div className="mt-1.5 text-xs text-ink-600">
+                      {count} {cs ? "odpovědí" : "responses"}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {texts.length > 0 && (
+          <section>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-600">
+              {cs ? "Komentáře (anonymní)" : "Comments (anonymized)"}
+            </h2>
+            <div className="space-y-2">
+              {texts.map((tx) => (
+                <Card key={tx.response_id} className="p-4">
+                  <p className="text-sm italic text-ink">“{tx.text_value}”</p>
+                </Card>
               ))}
             </div>
-          )}
-        </section>
-      )}
-
-      {people.length > 1 && (
-        <form method="get" className="mb-6">
-          <select name="recipient" defaultValue={target} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>{p.last_name}, {p.first_name}</option>
-            ))}
-          </select>
-          <button className="ml-2 rounded-lg bg-gray-900 px-3 py-2 text-sm text-white">View</button>
-        </form>
-      )}
-
-      {!hasTargetData && (
-        <p className="rounded-lg bg-amber-50 px-3 py-3 text-sm text-amber-800">
-          Not enough responses to display yet (anonymity threshold), or this cycle isn’t published.
-        </p>
-      )}
-
-      {scaleRows.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium text-gray-500">Ratings (average)</h2>
-          <ul className="space-y-3">
-            {scaleRows.map(({ q, count, avg }) => {
-              const max = q.type === "scale_10" ? 10 : 5;
-              const pct = avg ? (avg / max) * 100 : 0;
-              return (
-                <li key={q.id} className="rounded-xl bg-white p-3 ring-1 ring-gray-200">
-                  <div className="mb-1 flex justify-between gap-3 text-sm">
-                    <span>{q.text}</span>
-                    <span className="whitespace-nowrap font-semibold">{avg?.toFixed(1)} / {max}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-gray-100">
-                    <div className="h-2 rounded-full bg-gray-800" style={{ width: `${pct}%` }} />
-                  </div>
-                  <div className="mt-1 text-xs text-gray-400">{count} responses</div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {texts.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-sm font-medium text-gray-500">Comments (anonymized)</h2>
-          <ul className="space-y-2">
-            {texts.map((t) => (
-              <li key={t.response_id} className="rounded-xl bg-white p-3 text-sm text-gray-700 ring-1 ring-gray-200">“{t.text_value}”</li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </main>
+          </section>
+        )}
+      </main>
+    </>
   );
 }
 
 function ValueQuadrant({
   points,
   targetId,
+  locale,
 }: {
   points: { id: string; name: string; self: number; mgr: number }[];
   targetId: string;
+  locale: "en" | "cs";
 }) {
+  const cs = locale === "cs";
   const S = 260;
-  const PAD = 34;
+  const PAD = 38;
   const W = S + PAD * 2;
-  // value range 1..4 -> pixels; x = self-rating, y = manager-rating (inverted)
   const px = (v: number) => PAD + ((v - 1) / 3) * S;
   const py = (v: number) => PAD + ((4 - v) / 3) * S;
   const jitter = (id: string) => {
@@ -165,17 +211,19 @@ function ValueQuadrant({
   const mid = 2.5;
 
   return (
-    <section className="rounded-xl bg-white p-4 ring-1 ring-gray-200">
-      <h2 className="mb-1 text-sm font-medium text-gray-500">Value quadrant — {points.length} people</h2>
-      <p className="mb-2 text-xs text-gray-400">x: self-rated · y: manager-rated (1 low – 4 high)</p>
+    <>
+      <h2 className="mb-1 text-sm font-semibold text-ink">
+        {cs ? "Hodnotová mapa" : "Value quadrant"} — {points.length} {cs ? "lidí" : "people"}
+      </h2>
+      <p className="mb-2 text-xs text-ink-600">{cs ? "x: sebehodnocení · y: hodnocení manažera (1 nízké – 4 vysoké)" : "x: self-rated · y: manager-rated (1 low – 4 high)"}</p>
       <svg viewBox={`0 0 ${W} ${W}`} className="mx-auto w-full max-w-md">
-        <rect x={PAD} y={PAD} width={S} height={S} fill="#fafafa" stroke="#e5e7eb" />
-        <line x1={px(mid)} y1={PAD} x2={px(mid)} y2={PAD + S} stroke="#e5e7eb" strokeDasharray="4 4" />
-        <line x1={PAD} y1={py(mid)} x2={PAD + S} y2={py(mid)} stroke="#e5e7eb" strokeDasharray="4 4" />
-        <text x={PAD + 4} y={PAD + 14} fontSize="9" fill="#9ca3af">manager values more</text>
-        <text x={PAD + S - 4} y={PAD + 14} fontSize="9" fill="#9ca3af" textAnchor="end">aligned high</text>
-        <text x={PAD + 4} y={PAD + S - 6} fontSize="9" fill="#9ca3af">aligned low</text>
-        <text x={PAD + S - 4} y={PAD + S - 6} fontSize="9" fill="#9ca3af" textAnchor="end">self values more</text>
+        <rect x={PAD} y={PAD} width={S} height={S} rx={10} fill="#f3f5f5" stroke="#e2e8e8" />
+        <line x1={px(mid)} y1={PAD} x2={px(mid)} y2={PAD + S} stroke="#d7e0e0" strokeDasharray="4 4" />
+        <line x1={PAD} y1={py(mid)} x2={PAD + S} y2={py(mid)} stroke="#d7e0e0" strokeDasharray="4 4" />
+        <text x={PAD + 6} y={PAD + 15} fontSize="9" fill="#94a3b8">{cs ? "manažer cení víc" : "manager values more"}</text>
+        <text x={PAD + S - 6} y={PAD + 15} fontSize="9" fill="#94a3b8" textAnchor="end">{cs ? "vysoce sladěno" : "aligned high"}</text>
+        <text x={PAD + 6} y={PAD + S - 8} fontSize="9" fill="#94a3b8">{cs ? "nízce sladěno" : "aligned low"}</text>
+        <text x={PAD + S - 6} y={PAD + S - 8} fontSize="9" fill="#94a3b8" textAnchor="end">{cs ? "sám cení víc" : "self values more"}</text>
         {points.map((p) => {
           const isT = p.id === targetId;
           return (
@@ -183,15 +231,15 @@ function ValueQuadrant({
               key={p.id}
               cx={px(Math.min(4, Math.max(1, p.self + jitter(p.id))))}
               cy={py(Math.min(4, Math.max(1, p.mgr + jitter(p.id + "y"))))}
-              r={isT ? 6 : 3.5}
-              fill={isT ? "#111827" : "#9ca3af"}
-              fillOpacity={isT ? 1 : 0.6}
+              r={isT ? 6.5 : 3.5}
+              fill={isT ? "#3f7178" : "#94a3b8"}
+              fillOpacity={isT ? 1 : 0.55}
             >
               <title>{p.name}: self {p.self}, mgr {p.mgr}</title>
             </circle>
           );
         })}
       </svg>
-    </section>
+    </>
   );
 }

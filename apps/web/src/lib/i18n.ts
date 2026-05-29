@@ -30,6 +30,9 @@ export const dict = {
     myForms: "My forms",
     admin: "Admin",
     results: "Results",
+    report: "Report",
+    home: "Home",
+    hi: "Hi",
     notAllowedDomain: "That email domain isn't allowed.",
     notInDirectory: "This email isn't in the employee directory.",
     loading: "Loading…",
@@ -53,6 +56,9 @@ export const dict = {
     myForms: "Moje formuláře",
     admin: "Administrace",
     results: "Výsledky",
+    report: "Přehled",
+    home: "Domů",
+    hi: "Ahoj",
     notAllowedDomain: "Tato e-mailová doména není povolena.",
     notInDirectory: "Tento e-mail není v adresáři zaměstnanců.",
     loading: "Načítání…",
@@ -65,4 +71,27 @@ export const dict = {
 export type UIKey = keyof typeof dict["en"];
 export function tr(locale: Locale, key: UIKey): string {
   return dict[locale][key];
+}
+
+/** Friendly bilingual label for a feedback assignment type. */
+export function assignmentTypeLabel(type: string, locale: Locale): string {
+  const m: Record<string, [string, string]> = {
+    self: ["Self-evaluation", "Sebehodnocení"],
+    upward: ["Upward", "Nadřízený"],
+    downward: ["Downward", "Podřízený"],
+    peer: ["Peer", "Kolega"],
+  };
+  const e = m[type];
+  return e ? (locale === "cs" ? e[1] : e[0]) : type;
+}
+
+/** Friendly bilingual label for an assignment status. */
+export function statusLabel(status: string, locale: Locale): string {
+  const m: Record<string, [string, string]> = {
+    pending: ["To do", "K vyplnění"],
+    draft: ["In progress", "Rozpracováno"],
+    submitted: ["Submitted", "Odesláno"],
+  };
+  const e = m[status];
+  return e ? (locale === "cs" ? e[1] : e[0]) : status;
 }

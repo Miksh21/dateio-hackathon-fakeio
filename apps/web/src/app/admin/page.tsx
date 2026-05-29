@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentEmployee } from "@/lib/auth";
 import { hasSupabaseEnv } from "@/lib/env";
+import { getLocale } from "@/lib/locale";
 import AdminPanel from "@/components/AdminPanel";
+import { AppHeader } from "@/components/AppHeader";
 import type { EvaluationCycle } from "@/lib/types";
 
 export default async function AdminPage() {
@@ -10,18 +12,12 @@ export default async function AdminPage() {
   const me = await getCurrentEmployee();
   if (!me) redirect("/login");
   if (!me.is_super_admin) redirect("/");
+  const locale = await getLocale();
 
   const supabase = await createClient();
   const { data: cycles } = await supabase.from("evaluation_cycles").select("*").order("created_at");
-  const { data: employees } = await supabase
-    .from("employees")
-    .select("id,first_name,last_name")
-    .order("last_name");
 
-  const stats: Record<
-    string,
-    { assignments: number; submitted: number; relationships: number; questions: number }
-  > = {};
+  const stats: Record<string, { assignments: number; submitted: number; relationships: number; questions: number }> = {};
   for (const c of (cycles ?? []) as EvaluationCycle[]) {
     const [a, s, r, q] = await Promise.all([
       supabase.from("feedback_assignments").select("id", { count: "exact", head: true }).eq("cycle_id", c.id),
@@ -38,10 +34,9 @@ export default async function AdminPage() {
   }
 
   return (
-    <AdminPanel
-      cycles={(cycles ?? []) as EvaluationCycle[]}
-      employees={employees ?? []}
-      stats={stats}
-    />
+    <>
+      <AppHeader me={me} locale={locale} active="admin" />
+      <AdminPanel cycles={(cycles ?? []) as EvaluationCycle[]} stats={stats} />
+    </>
   );
 }

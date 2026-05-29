@@ -1,21 +1,30 @@
 @import "tailwindcss";
 
+/* Dateio brand tokens (brand manual): primary slate #3E4955, accent dark aqua
+   #3F7178, plus secondary mint/sky/sun. Clean solids only (no gradients),
+   Poppins typography, light surfaces. Forced light to keep inputs readable. */
+@theme {
+  --color-ink: #3e4955; /* brand base: primary text + dark surfaces */
+  --color-ink-600: #586472; /* muted text */
+  --color-aqua: #3f7178; /* accent / primary action (Platform) */
+  --color-aqua-700: #2f5a60; /* accent hover */
+  --color-mint: #c0d1c7; /* positive accents */
+  --color-mint-light: #d3e7e4; /* soft positive surface */
+  --color-sky: #a1b5d8;
+  --color-lavender: #c4b7e0;
+  --color-pearl: #debc8f;
+  --color-sun: #f3d152; /* attention / warnings */
+  --color-canvas: #f3f5f5; /* app background */
+
+  --font-sans: var(--font-poppins), Calibri, system-ui, -apple-system, sans-serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  /* App is designed light-only; force light form controls so inputs stay readable in OS dark mode. */
   color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
 }

@@ -1,9 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { qText, optLabel, dict, type Locale } from "@/lib/i18n";
+import { qText, optLabel, dict, assignmentTypeLabel, type Locale } from "@/lib/i18n";
+import { buttonClass, Badge, ProgressBar, cn } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import type { Question, AssignmentType } from "@/lib/types";
 
 type AssignmentInfo = {
@@ -17,7 +20,6 @@ type AssignmentInfo = {
 };
 
 type Answer = { scale_value: number | null; text_value: string | null; choice_value: string | null };
-
 const EMPTY: Answer = { scale_value: null, text_value: null, choice_value: null };
 
 export default function FeedbackForm({
@@ -25,20 +27,22 @@ export default function FeedbackForm({
   questions,
   initial,
   editable,
+  locale,
 }: {
   assignment: AssignmentInfo;
   questions: Question[];
   initial: Record<string, Answer>;
   editable: boolean;
+  locale: Locale;
 }) {
   const router = useRouter();
-  const [locale, setLocale] = useState<Locale>("en");
   const [answers, setAnswers] = useState<Record<string, Answer>>(initial);
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const timers = useRef<Record<string, number>>({});
   const t = dict[locale];
+  const cs = locale === "cs";
 
   function setAnswer(qid: string, patch: Partial<Answer>, debounce = false) {
     setAnswers((prev) => {
@@ -56,7 +60,7 @@ export default function FeedbackForm({
 
   async function save(qid: string, a: Answer) {
     if (!editable) return;
-    setSaving(true);
+    setSaveState("saving");
     setError(null);
     try {
       const supabase = createClient();
@@ -67,10 +71,10 @@ export default function FeedbackForm({
           { onConflict: "assignment_id,question_id" },
         );
       if (error) throw error;
+      setSaveState("saved");
     } catch (e) {
+      setSaveState("idle");
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -78,7 +82,7 @@ export default function FeedbackForm({
     setError(null);
     const missing = questions.filter((q) => q.is_required && isEmpty(answers[q.id]));
     if (missing.length) {
-      setError(`${missing.length} required question(s) still unanswered.`);
+      setError(cs ? `Zbývá ${missing.length} povinných otázek.` : `${missing.length} required question(s) still unanswered.`);
       return;
     }
     setSubmitting(true);
@@ -98,60 +102,83 @@ export default function FeedbackForm({
   }
 
   const recipient = `${assignment.recipient_first_name} ${assignment.recipient_last_name}`;
+  const title = assignment.type === "self" ? assignmentTypeLabel("self", locale) : recipient;
+  const answered = questions.filter((q) => !isEmpty(answers[q.id])).length;
+  const total = questions.length;
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <a href="/forms" className="text-sm text-gray-500 hover:text-gray-900">← {t.myForms}</a>
-          <h1 className="mt-1 text-xl font-semibold">
-            {assignment.type === "self" ? "Self-evaluation" : recipient}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {assignment.type} · {assignment.cycle_name}
-          </p>
+    <main className="mx-auto max-w-2xl px-4 py-8 pb-28">
+      <Link className="mb-3 inline-flex items-center gap-1 text-sm text-ink-600 hover:text-ink" href="/forms">
+        <Icon name="arrowLeft" size={15} /> {t.myForms}
+      </Link>
+      <div className="mb-6">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <Badge tone="aqua">{assignmentTypeLabel(assignment.type, locale)}</Badge>
         </div>
-        <button
-          type="button"
-          onClick={() => setLocale(locale === "en" ? "cs" : "en")}
-          className="rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100"
-        >
-          {locale === "en" ? "CS" : "EN"}
-        </button>
+        <p className="mt-1 text-sm text-ink-600">
+          {assignment.recipient_job_title && assignment.type !== "self" ? `${assignment.recipient_job_title} · ` : ""}
+          {assignment.cycle_name}
+        </p>
       </div>
 
       {!editable && (
-        <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {assignment.status === "submitted" ? "Submitted — read only." : "This form is closed."}
+        <p className="mb-4 flex items-center gap-2 rounded-xl bg-sun/20 px-3 py-2 text-sm text-ink">
+          <Icon name="info" size={16} />
+          {assignment.status === "submitted"
+            ? cs
+              ? "Odesláno — jen ke čtení."
+              : "Submitted — read only."
+            : cs
+              ? "Tento formulář je uzavřen."
+              : "This form is closed."}
         </p>
       )}
 
-      <div className="space-y-5">
+      <div className="space-y-4">
         {questions.map((q, i) => (
-          <fieldset key={q.id} disabled={!editable} className="rounded-xl bg-white p-4 ring-1 ring-gray-200">
-            <legend className="mb-3 text-sm font-medium text-gray-800">
-              {i + 1}. {qText(q, locale)}
-              {q.is_required && <span className="text-red-500"> *</span>}
+          <fieldset key={q.id} disabled={!editable} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
+            <legend className="mb-3 flex w-full items-start gap-2 text-sm font-medium text-ink">
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-aqua/10 text-xs font-semibold text-aqua">
+                {i + 1}
+              </span>
+              <span className="pt-0.5">
+                {qText(q, locale)}
+                {q.is_required && <span className="text-red-500"> *</span>}
+              </span>
             </legend>
-            {renderInput(q, answers[q.id], locale, setAnswer)}
+            <div className="pl-8">{renderInput(q, answers[q.id], locale, setAnswer)}</div>
           </fieldset>
         ))}
       </div>
 
-      {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-      <div className="mt-6 flex items-center justify-between">
-        <span className="text-xs text-gray-400">{saving ? t.loading : t.saved}</span>
-        {editable && (
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitting}
-            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
-          >
-            {submitting ? t.loading : t.submit}
-          </button>
-        )}
+      {/* sticky action bar */}
+      <div className="sticky bottom-4 mt-6">
+        <div className="flex items-center gap-3 rounded-2xl bg-white/95 p-3 shadow-lg ring-1 ring-black/[0.08] backdrop-blur">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center justify-between text-xs text-ink-600">
+              <span>
+                {answered}/{total} {cs ? "zodpovězeno" : "answered"}
+              </span>
+              <span className="flex items-center gap-1">
+                {saveState === "saving" && <>{cs ? "Ukládám…" : "Saving…"}</>}
+                {saveState === "saved" && (
+                  <>
+                    <Icon name="check" size={13} className="text-aqua" /> {t.saved}
+                  </>
+                )}
+              </span>
+            </div>
+            <ProgressBar value={answered} max={total} tone={answered === total ? "mint" : "aqua"} />
+          </div>
+          {editable && (
+            <button type="button" onClick={submit} disabled={submitting} className={buttonClass("primary", "shrink-0")}>
+              {submitting ? t.loading : t.submit}
+            </button>
+          )}
+        </div>
       </div>
     </main>
   );
@@ -174,28 +201,33 @@ function renderInput(
         rows={4}
         defaultValue={a?.text_value ?? ""}
         onChange={(e) => setAnswer(q.id, { text_value: e.target.value }, true)}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-gray-900 focus:outline-none"
-        placeholder="…"
+        className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-600/40 focus:border-aqua focus:outline-none focus:ring-2 focus:ring-aqua/30"
+        placeholder={locale === "cs" ? "Napište svou odpověď…" : "Type your answer…"}
       />
     );
   }
   if (q.type === "scale_10") {
     return (
-      <div className="flex flex-wrap gap-1">
-        {Array.from({ length: 10 }, (_, n) => n + 1).map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => setAnswer(q.id, { scale_value: n })}
-            className={`h-9 w-9 rounded-md text-sm ${a?.scale_value === n ? "bg-gray-900 text-white" : "bg-gray-100 hover:bg-gray-200"}`}
-          >
-            {n}
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-1.5">
+        {Array.from({ length: 10 }, (_, n) => n + 1).map((n) => {
+          const sel = a?.scale_value === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setAnswer(q.id, { scale_value: n })}
+              className={cn(
+                "h-10 w-10 rounded-xl text-sm font-medium transition",
+                sel ? "bg-aqua text-white shadow-sm" : "bg-canvas text-ink ring-1 ring-black/10 hover:ring-aqua/40",
+              )}
+            >
+              {n}
+            </button>
+          );
+        })}
       </div>
     );
   }
-  // scale_5 and multi_choice render their labeled options
   const opts = q.options ?? [];
   const selected = q.type === "multi_choice" ? a?.choice_value : a?.scale_value?.toString() ?? null;
   return (
@@ -207,12 +239,14 @@ function renderInput(
           <button
             key={val}
             type="button"
-            onClick={() =>
-              setAnswer(q.id, q.type === "multi_choice" ? { choice_value: val } : { scale_value: o.value })
-            }
-            className={`block w-full rounded-lg border px-3 py-2 text-left text-sm ${isSel ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 hover:bg-gray-50"}`}
+            onClick={() => setAnswer(q.id, q.type === "multi_choice" ? { choice_value: val } : { scale_value: o.value })}
+            className={cn(
+              "flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition",
+              isSel ? "border-aqua bg-aqua/10 font-medium text-aqua" : "border-black/10 text-ink hover:border-black/25",
+            )}
           >
             {optLabel(o, locale)}
+            {isSel && <Icon name="check" size={16} />}
           </button>
         );
       })}

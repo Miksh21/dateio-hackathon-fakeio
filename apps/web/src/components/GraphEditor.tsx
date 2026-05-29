@@ -99,12 +99,12 @@ function PersonNode({ data, selected }: NodeProps) {
   const d = data as { label?: string; role?: string; admin?: boolean };
   const role = d.role ?? "ic";
   const border = d.admin
-    ? "2px solid #eab308"
+    ? "2px solid #f3d152"
     : role === "ceo"
-      ? "2px solid #b91c1c"
+      ? "2px solid #3e4955"
       : role === "manager"
-        ? "2px solid #2563eb"
-        : "1px solid #d1d5db";
+        ? "2px solid #3f7178"
+        : "1px solid #cbd5d5";
   return (
     <div
       style={{
@@ -112,9 +112,9 @@ function PersonNode({ data, selected }: NodeProps) {
         width: NODE_W,
         padding: "6px 8px",
         borderRadius: 8,
-        background: d.admin ? "#fefce8" : "white",
+        background: d.admin ? "#fdf8e3" : "white",
         border,
-        boxShadow: selected ? "0 0 0 3px rgba(37,99,235,0.45)" : undefined,
+        boxShadow: selected ? "0 0 0 3px rgba(63,113,120,0.40)" : undefined,
       }}
     >
       <Handle type="target" id="t" position={Position.Top} style={{ background: "#2563eb" }} />
@@ -131,7 +131,7 @@ const nodeTypes = { person: PersonNode };
 function relToEdge(r: Rel): Edge {
   const peer = r.relationship_type === "peer";
   const updated = (r.origin ?? "updated") === "updated";
-  const color = updated ? "#ea580c" : "#2563eb"; // orange = your edit, blue = original line
+  const color = updated ? "#3f7178" : "#94a3b8"; // aqua = your edit, slate = original line
   return {
     id: r.id,
     source: r.from_employee_id,
@@ -243,9 +243,9 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <li>
             <span className="font-medium">manages</span> = solid arrow, top → bottom.{" "}
             <span className="font-medium">peer</span> = dashed line, side-to-side (one per pair).{" "}
-            <span className="font-medium text-blue-700">Blue</span> = an{" "}
+            <span className="font-medium text-slate-500">Grey</span> = an{" "}
             <span className="font-medium">original</span> reporting line;{" "}
-            <span className="font-medium text-orange-600">orange</span> = an{" "}
+            <span className="font-medium text-aqua">aqua</span> = an{" "}
             <span className="font-medium">edit you made</span> (updated).
           </li>
           <li>
@@ -263,22 +263,22 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             layout</span> re-arranges everyone into a clean hierarchy.
           </li>
         </ol>
-        <div className="mt-4 space-y-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+        <div className="mt-4 space-y-2 rounded-lg bg-canvas px-3 py-2 text-xs text-ink-600">
           <div className="flex flex-wrap gap-3">
-            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-red-700" /> CEO</span>
-            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-blue-600" /> Manager</span>
-            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-yellow-500 bg-yellow-50" /> Admin</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-ink" /> CEO</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-aqua" /> Manager</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-sun bg-sun/10" /> Admin</span>
             <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border border-gray-300" /> Team member</span>
           </div>
           <div className="flex flex-wrap gap-3">
-            <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-5 bg-blue-600" /> original line</span>
-            <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-5 bg-orange-600" /> your edit (updated)</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-5 bg-slate-400" /> original line</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-5 bg-aqua" /> your edit (updated)</span>
           </div>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="mt-5 w-full rounded-lg bg-gray-900 py-2 text-sm font-medium text-white hover:bg-gray-700"
+          className="mt-5 w-full rounded-xl bg-aqua py-2 text-sm font-medium text-white hover:bg-aqua-700"
         >
           Got it
         </button>
@@ -500,13 +500,13 @@ function Flow({ cycleId, employees, relationships }: Props) {
           Tidy layout
         </button>
 
-        <div className="ml-auto hidden flex-wrap items-center gap-3 text-xs text-gray-500 lg:flex">
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-red-700" /> CEO</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-blue-600" /> Manager</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-yellow-500 bg-yellow-50" /> Admin</span>
+        <div className="ml-auto hidden flex-wrap items-center gap-3 text-xs text-ink-600 lg:flex">
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-ink" /> CEO</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-aqua" /> Manager</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-sun bg-sun/10" /> Admin</span>
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border border-gray-300" /> Team</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-blue-600" /> original</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-orange-600" /> edit</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-slate-400" /> original</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-aqua" /> edit</span>
         </div>
       </div>
 
@@ -518,14 +518,14 @@ function Flow({ cycleId, employees, relationships }: Props) {
           <button
             type="button"
             onClick={() => setEdgeType("manages")}
-            className={`px-2 py-1 text-xs ${edgeType === "manages" ? "bg-blue-600 text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
+            className={`px-2 py-1 text-xs ${edgeType === "manages" ? "bg-aqua text-white" : "bg-white text-ink-600 hover:bg-black/[0.04]"}`}
           >
             manages
           </button>
           <button
             type="button"
             onClick={() => setEdgeType("peer")}
-            className={`px-2 py-1 text-xs ${edgeType === "peer" ? "bg-gray-800 text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
+            className={`px-2 py-1 text-xs ${edgeType === "peer" ? "bg-ink text-white" : "bg-white text-ink-600 hover:bg-black/[0.04]"}`}
           >
             is a peer with
           </button>
@@ -534,7 +534,7 @@ function Flow({ cycleId, employees, relationships }: Props) {
         <button
           type="button"
           onClick={addRelationship}
-          className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700"
+          className="rounded-lg bg-aqua px-3 py-1.5 text-xs font-medium text-white hover:bg-aqua-700"
         >
           Add
         </button>

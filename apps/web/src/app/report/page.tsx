@@ -3,8 +3,12 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentEmployee } from "@/lib/auth";
 import { hasSupabaseEnv } from "@/lib/env";
+import { getLocale } from "@/lib/locale";
+import { AppHeader } from "@/components/AppHeader";
+import { Card, PageHeader, EmptyState, cn } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 
-const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc"; // demo cycle (multi-cycle later)
+const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 
 type Row = {
   id: string;
@@ -19,14 +23,20 @@ type Row = {
   from_manager_last: string | null;
 };
 
+function pctColor(pct: number): string {
+  return pct >= 80 ? "#3f7178" : pct >= 50 ? "#deb869" : "#e0726a";
+}
+
 function Bar({ done, total }: { done: number; total: number }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
     <div className="flex items-center gap-2">
-      <div className="h-2 w-36 rounded-full bg-gray-100">
-        <div className="h-2 rounded-full bg-green-500" style={{ width: `${pct}%` }} />
+      <div className="h-2 w-32 overflow-hidden rounded-full bg-black/[0.07]">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: pctColor(pct) }} />
       </div>
-      <span className="whitespace-nowrap text-xs text-gray-500">{done}/{total} · {pct}%</span>
+      <span className="whitespace-nowrap text-xs tabular-nums text-ink-600">
+        {done}/{total} · {pct}%
+      </span>
     </div>
   );
 }
@@ -39,6 +49,8 @@ export default async function ReportPage({
   if (!hasSupabaseEnv()) redirect("/");
   const me = await getCurrentEmployee();
   if (!me) redirect("/login");
+  const locale = await getLocale();
+  const cs = locale === "cs";
   const sp = await searchParams;
   const by: "team" | "manager" = sp.by === "manager" ? "manager" : "team";
   const focus = sp.focus ?? null;
@@ -54,7 +66,9 @@ export default async function ReportPage({
     by === "manager"
       ? r.from_manager_id
         ? `${r.from_manager_last}, ${r.from_manager_first}`
-        : "(no manager)"
+        : cs
+          ? "(bez manažera)"
+          : "(no manager)"
       : r.from_division ?? "—";
 
   const groups = new Map<string, Row[]>();
@@ -78,11 +92,7 @@ export default async function ReportPage({
     ? [
         ...focusGroup.rows
           .reduce((m, r) => {
-            const g = m.get(r.from_id) ?? {
-              name: `${r.from_last_name}, ${r.from_first_name}`,
-              total: 0,
-              submitted: 0,
-            };
+            const g = m.get(r.from_id) ?? { name: `${r.from_last_name}, ${r.from_first_name}`, total: 0, submitted: 0 };
             g.total++;
             if (r.status === "submitted") g.submitted++;
             m.set(r.from_id, g);
@@ -92,66 +102,96 @@ export default async function ReportPage({
       ].sort((a, b) => a.submitted / a.total - b.submitted / b.total)
     : [];
 
+  const tab = (key: "team" | "manager", label: string) => (
+    <Link
+      href={`/report?by=${key}`}
+      className={cn(
+        "rounded-lg px-3 py-1.5 text-sm font-medium transition",
+        by === key ? "bg-ink text-white" : "bg-white text-ink-600 ring-1 ring-black/10 hover:text-ink",
+      )}
+    >
+      {label}
+    </Link>
+  );
+
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <Link href="/" className="text-sm text-gray-500 hover:text-gray-900">← Home</Link>
-      <h1 className="mb-1 mt-1 text-2xl font-semibold">Completion report</h1>
-      <p className="mb-4 text-sm text-gray-500">Who has submitted their feedback.</p>
+    <>
+      <AppHeader me={me} locale={locale} active="report" />
+      <main className="mx-auto max-w-3xl px-4 py-8">
+        <PageHeader
+          title={cs ? "Přehled dokončení" : "Completion report"}
+          subtitle={cs ? "Kdo už odeslal svou zpětnou vazbu." : "Who has submitted their feedback."}
+        />
 
-      <div className="mb-6 rounded-xl bg-white p-4 ring-1 ring-gray-200">
-        <div className="mb-1 text-sm font-medium">Overall</div>
-        <Bar done={submitted} total={total} />
-      </div>
+        <Card className="mb-6">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium text-ink">{cs ? "Celkem" : "Overall"}</span>
+            <span className="text-sm font-semibold text-ink">{total ? Math.round((submitted / total) * 100) : 0}%</span>
+          </div>
+          <Bar done={submitted} total={total} />
+        </Card>
 
-      <div className="mb-3 flex gap-2 text-sm">
-        <Link href="/report?by=team" className={`rounded-md px-3 py-1.5 ${by === "team" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>By team</Link>
-        <Link href="/report?by=manager" className={`rounded-md px-3 py-1.5 ${by === "manager" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}>By manager</Link>
-      </div>
+        <div className="mb-4 flex gap-2">
+          {tab("team", cs ? "Podle týmu" : "By team")}
+          {tab("manager", cs ? "Podle manažera" : "By manager")}
+        </div>
 
-      {rows.length === 0 ? (
-        <p className="rounded-lg bg-amber-50 px-3 py-3 text-sm text-amber-800">No assignments visible to you in this cycle.</p>
-      ) : (
-        <table className="w-full">
-          <thead>
-            <tr className="text-left text-xs text-gray-500">
-              <th className="py-1 font-medium">{by === "manager" ? "Manager" : "Team"}</th>
-              <th className="font-medium">Submitted</th>
-            </tr>
-          </thead>
-          <tbody>
-            {groupRows.map((g) => (
-              <tr key={g.key} className="border-t border-gray-100">
-                <td className="py-2 text-sm">
-                  <Link href={`/report?by=${by}&focus=${encodeURIComponent(g.key)}`} className="text-gray-800 hover:underline">
-                    {g.key}
+        {rows.length === 0 ? (
+          <EmptyState
+            icon={<Icon name="info" size={22} />}
+            title={cs ? "Žádná data" : "No assignments visible"}
+            hint={cs ? "V tomto cyklu pro vás nejsou viditelná žádná přiřazení." : "No assignments are visible to you in this cycle."}
+          />
+        ) : (
+          <Card className="overflow-hidden p-0">
+            <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-600">
+              <span>{by === "manager" ? (cs ? "Manažer" : "Manager") : cs ? "Tým" : "Team"}</span>
+              <span>{cs ? "Odesláno" : "Submitted"}</span>
+            </div>
+            <ul className="divide-y divide-black/[0.05]">
+              {groupRows.map((g) => (
+                <li key={g.key}>
+                  <Link
+                    href={`/report?by=${by}&focus=${encodeURIComponent(g.key)}`}
+                    className={cn(
+                      "flex items-center justify-between gap-3 px-4 py-2.5 text-sm transition hover:bg-black/[0.02]",
+                      focus === g.key && "bg-aqua/5",
+                    )}
+                  >
+                    <span className="truncate text-ink">{g.key}</span>
+                    <Bar done={g.submitted} total={g.total} />
                   </Link>
-                </td>
-                <td><Bar done={g.submitted} total={g.total} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {focusGroup && (
-        <section className="mt-6 rounded-xl bg-white p-4 ring-1 ring-gray-200">
-          <h2 className="mb-3 text-sm font-medium">{focusGroup.key} — by person</h2>
-          <ul className="space-y-1">
-            {givers.map((g) => {
-              const done = g.submitted >= g.total;
-              return (
-                <li key={g.name} className="flex items-center justify-between text-sm">
-                  <span className={done ? "text-gray-700" : "text-red-600"}>{g.name}</span>
-                  <span className="text-xs text-gray-500">
-                    {g.submitted}/{g.total}
-                    {done ? "" : " · missing"}
-                  </span>
                 </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-    </main>
+              ))}
+            </ul>
+          </Card>
+        )}
+
+        {focusGroup && (
+          <Card className="mt-6">
+            <h2 className="mb-3 text-sm font-semibold text-ink">
+              {focusGroup.key} — {cs ? "po lidech" : "by person"}
+            </h2>
+            <ul className="space-y-1.5">
+              {givers.map((g) => {
+                const done = g.submitted >= g.total;
+                return (
+                  <li key={g.name} className="flex items-center justify-between text-sm">
+                    <span className={cn("flex items-center gap-1.5", done ? "text-ink" : "text-red-600")}>
+                      {done && <Icon name="check" size={14} className="text-aqua" />}
+                      {g.name}
+                    </span>
+                    <span className="text-xs tabular-nums text-ink-600">
+                      {g.submitted}/{g.total}
+                      {done ? "" : cs ? " · chybí" : " · missing"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        )}
+      </main>
+    </>
   );
 }
