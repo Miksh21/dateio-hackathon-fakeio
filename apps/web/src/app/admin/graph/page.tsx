@@ -3,8 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentEmployee } from "@/lib/auth";
 import { hasSupabaseEnv } from "@/lib/env";
 import GraphEditor from "@/components/GraphEditor";
-
-const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc"; // demo cycle (multi-cycle later)
+import { getCurrentCycleId } from "@/lib/cycle";
 
 export default async function GraphPage() {
   if (!hasSupabaseEnv()) redirect("/");
@@ -12,6 +11,7 @@ export default async function GraphPage() {
   if (!me) redirect("/login");
   if (!me.is_super_admin) redirect("/");
 
+  const CYCLE = await getCurrentCycleId();
   const supabase = await createClient();
   const { data: employees } = await supabase
     .from("employees")

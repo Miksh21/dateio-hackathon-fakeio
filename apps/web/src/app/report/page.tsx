@@ -8,8 +8,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Card, PageHeader, EmptyState, cn } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { PageGuide } from "@/components/PageGuide";
-
-const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+import { getCurrentCycleId } from "@/lib/cycle";
 
 type Row = {
   id: string;
@@ -56,6 +55,7 @@ export default async function ReportPage({
   const by: "team" | "manager" = sp.by === "manager" ? "manager" : "team";
   const focus = sp.focus ?? null;
 
+  const CYCLE = await getCurrentCycleId();
   const supabase = await createClient();
   const { data } = await supabase.from("v_assignment_status").select("*").eq("cycle_id", CYCLE);
   const rows = (data ?? []) as Row[];

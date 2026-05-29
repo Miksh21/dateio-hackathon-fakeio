@@ -9,8 +9,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Card, Badge, ProgressBar, type Tone } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
 import { PageGuide } from "@/components/PageGuide";
-
-const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+import { getCurrentCycleId } from "@/lib/cycle";
 
 export default async function Home() {
   if (!hasSupabaseEnv()) {
@@ -34,6 +33,7 @@ export default async function Home() {
   const t = dict[locale];
   const cs = locale === "cs";
 
+  const CYCLE = await getCurrentCycleId();
   const supabase = await createClient();
   const [{ data: asg }, { data: cyc }] = await Promise.all([
     supabase.from("v_my_assignments").select("status"),
