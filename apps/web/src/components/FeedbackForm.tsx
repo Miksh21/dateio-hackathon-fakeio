@@ -252,24 +252,26 @@ function MatrixBlock({
 }) {
   const cs = locale === "cs";
   return (
-    <fieldset disabled={!editable} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
-      <legend className="text-sm font-semibold text-ink">{categoryLabel(block.category, locale)}</legend>
+    <fieldset disabled={!editable} className="min-w-0 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
+      <div className="text-sm font-semibold text-ink">{categoryLabel(block.category, locale)}</div>
       <p className="mb-3 mt-1 text-xs text-ink-600">
         {cs ? "U každého tvrzení vyberte, jak často platí." : "For each statement, choose how often it's true."}
       </p>
-      <div className="-mx-2 overflow-x-auto px-2">
-        <table className="w-full min-w-[480px] border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="w-2/5" />
-              {block.options.map((o) => (
-                <th key={o.value} className="px-1 pb-2 text-center align-bottom text-[11px] font-medium leading-tight text-ink-600">
-                  {optLabel(o, locale)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr>
+            <th className="sticky top-14 z-10 w-2/5 bg-white shadow-[0_1px_0_0_rgba(0,0,0,0.08)]" />
+            {block.options.map((o) => (
+              <th
+                key={o.value}
+                className="sticky top-14 z-10 bg-white px-1 pb-2 pt-2 text-center align-bottom text-[11px] font-medium leading-tight text-ink-600 shadow-[0_1px_0_0_rgba(0,0,0,0.08)]"
+              >
+                {optLabel(o, locale)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
             {block.items.map((q) => {
               const sel = answers[q.id]?.scale_value ?? null;
               return (
@@ -299,7 +301,6 @@ function MatrixBlock({
             })}
           </tbody>
         </table>
-      </div>
     </fieldset>
   );
 }
@@ -318,11 +319,11 @@ function SingleBlock({
   editable: boolean;
 }) {
   return (
-    <fieldset disabled={!editable} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
-      <legend className="mb-3 text-sm font-medium text-ink">
+    <fieldset disabled={!editable} className="min-w-0 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
+      <div className="mb-3 text-sm font-medium text-ink">
         {qText(q, locale)}
         {q.is_required && <span className="text-red-500"> *</span>}
-      </legend>
+      </div>
       {renderInput(q, answers[q.id], locale, setAnswer)}
     </fieldset>
   );
