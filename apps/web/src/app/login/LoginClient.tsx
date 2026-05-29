@@ -68,15 +68,14 @@ export function LoginClient() {
     setInfo(null);
     setLoading(true);
     try {
-      const supabase = createClient();
-      const { data: allowed, error: rpcErr } = await supabase.rpc("can_login", { p_email: email.trim() });
-      if (rpcErr) throw rpcErr;
-      if (!allowed) {
-        setError(t.notInDirectory);
-        return false;
-      }
-      const { error: otpErr } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true } });
-      if (otpErr) throw otpErr;
+      // The server gates the allowlist and always returns the same neutral
+      // message, so we advance to the code step regardless (no enumeration).
+      const res = await fetch("/api/auth/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      if (!res.ok) throw new Error(t.invalidCode);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -100,9 +99,14 @@ export function LoginClient() {
     setError(null);
     setLoading(true);
     try {
-      const supabase = createClient();
-      const { error: vErr } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: "email" });
-      if (vErr) throw vErr;
+      // verify-code mints the Supabase session and sets the auth cookies on the
+      // response; router.refresh() then picks up the signed-in state.
+      const res = await fetch("/api/auth/verify-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), code: code.trim() }),
+      });
+      if (!res.ok) throw new Error(t.invalidCode);
       router.push("/");
       router.refresh();
     } catch (err) {
