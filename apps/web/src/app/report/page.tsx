@@ -7,6 +7,7 @@ import { getLocale } from "@/lib/locale";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, PageHeader, EmptyState, cn } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { PageGuide } from "@/components/PageGuide";
 
 const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 
@@ -121,6 +122,17 @@ export default async function ReportPage({
         <PageHeader
           title={cs ? "Přehled dokončení" : "Completion report"}
           subtitle={cs ? "Kdo už odeslal svou zpětnou vazbu." : "Who has submitted their feedback."}
+        />
+
+        <PageGuide
+          id="report"
+          title={cs ? "Sledování dokončení" : "Tracking completion"}
+          points={[
+            cs ? "Sledujte, kdo už odeslal zpětnou vazbu — celkově i po skupinách." : "Track who has submitted feedback — overall and per group.",
+            cs
+              ? "Přepněte Podle týmu / Podle manažera a klikněte na skupinu, kde uvidíte, kdo chybí."
+              : "Toggle By team / By manager, then click a group to see exactly who's missing.",
+          ]}
         />
 
         <Card className="mb-6">

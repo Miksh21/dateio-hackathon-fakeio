@@ -5,16 +5,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { EvaluationCycle } from "@/lib/types";
+import type { Locale } from "@/lib/i18n";
 import { Card, PageHeader, Stat, Badge, Button, ProgressBar, buttonClass, type Tone } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { PageGuide } from "@/components/PageGuide";
 
 type StatT = { assignments: number; submitted: number; relationships: number; questions: number };
 type Stats = Record<string, StatT>;
 
 const STATUS_TONE: Record<string, Tone> = { draft: "neutral", open: "mint", closed: "pearl", published: "aqua" };
 
-export default function AdminPanel({ cycles, stats }: { cycles: EvaluationCycle[]; stats: Stats }) {
+export default function AdminPanel({ cycles, stats, locale }: { cycles: EvaluationCycle[]; stats: Stats; locale: Locale }) {
   const router = useRouter();
+  const cs = locale === "cs";
   const supabase = useMemo(() => createClient(), []);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -66,6 +69,17 @@ export default function AdminPanel({ cycles, stats }: { cycles: EvaluationCycle[
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
       <PageHeader title="Admin · Cycles" subtitle="Open a cycle, draw the graph, publish results." />
+
+      <PageGuide
+        id="admin"
+        title={cs ? "Řízení cyklu" : "Running a cycle"}
+        points={[
+          cs ? "Otevřít + generovat: spustí cyklus a vytvoří přiřazení podle grafu." : "Open + generate: starts the cycle and builds feedback assignments from the graph.",
+          cs ? "Otevřít editor grafu: nakreslete, kdo koho hodnotí (manažeři → podřízení, kolegové)." : "Open graph editor: draw who reviews whom (managers → reports, peers).",
+          cs ? "Po úpravě grafu znovu klikněte Otevřít + generovat." : "After editing the graph, click Open + generate again to apply.",
+          cs ? "Publikovat: zpřístupní výsledky zaměstnancům." : "Publish: makes results visible to employees.",
+        ]}
+      />
 
       {msg && <p className="mb-4 rounded-xl bg-black/[0.04] px-3 py-2 text-sm text-ink">{msg}</p>}
 

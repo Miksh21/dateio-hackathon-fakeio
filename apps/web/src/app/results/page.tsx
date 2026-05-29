@@ -7,6 +7,7 @@ import { dict } from "@/lib/i18n";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { PageGuide } from "@/components/PageGuide";
 
 const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 
@@ -72,6 +73,13 @@ export default async function ResultsPage({
 
   const hasTargetData = scaleRows.length > 0 || texts.length > 0;
 
+  const resGuide = [
+    cs ? "Toto je zpětná vazba o vás — souhrnná a anonymní; zobrazí se až po dostatku odpovědí." : "This is feedback about you — aggregated and anonymized; it appears only once enough people respond.",
+    cs ? "Hodnotová mapa porovnává vaše sebehodnocení a hodnocení manažerem." : "The value quadrant compares your self-rating with your manager's rating.",
+  ];
+  if (me.is_super_admin || me.role !== "ic")
+    resGuide.push(cs ? "Nahoře můžete přepnout, čí výsledky zobrazit." : "Use the selector at the top to view another person's results.");
+
   return (
     <>
       <AppHeader me={me} locale={locale} active="results" />
@@ -106,6 +114,8 @@ export default async function ResultsPage({
             ) : undefined
           }
         />
+
+        <PageGuide id="results" title={cs ? "Jak číst výsledky" : "Reading your results"} points={resGuide} />
 
         {valuePoints.length > 0 && (
           <Card className="mb-6">

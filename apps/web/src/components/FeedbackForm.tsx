@@ -7,7 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 import { qText, optLabel, dict, assignmentTypeLabel, type Locale } from "@/lib/i18n";
 import { buttonClass, Badge, ProgressBar, cn } from "@/components/ui";
 import { Icon } from "@/components/Icon";
-import type { Question, AssignmentType } from "@/lib/types";
+import { PageGuide } from "@/components/PageGuide";
+import type { Question, QuestionOption, AssignmentType } from "@/lib/types";
 
 type AssignmentInfo = {
   id: string;
@@ -21,6 +22,45 @@ type AssignmentInfo = {
 
 type Answer = { scale_value: number | null; text_value: string | null; choice_value: string | null };
 const EMPTY: Answer = { scale_value: null, text_value: null, choice_value: null };
+
+type SetAnswer = (qid: string, patch: Partial<Answer>, debounce?: boolean) => void;
+type Block = { kind: "single"; q: Question } | { kind: "matrix"; category: string | null; options: QuestionOption[]; items: Question[] };
+
+// Coalesce consecutive scale_5 questions that share the same options + category
+// into a single matrix block; everything else renders standalone.
+function groupQuestions(qs: Question[]): Block[] {
+  const blocks: Block[] = [];
+  let run: Question[] = [];
+  const sig = (q: Question) => `${q.type}|${q.category}|${(q.options ?? []).map((o) => o.value).join(",")}`;
+  const flush = () => {
+    if (run.length === 0) return;
+    if (run.length === 1) blocks.push({ kind: "single", q: run[0] });
+    else blocks.push({ kind: "matrix", category: run[0].category, options: run[0].options ?? [], items: [...run] });
+    run = [];
+  };
+  for (const q of qs) {
+    const eligible = q.type === "scale_5" && (q.options?.length ?? 0) > 0;
+    if (eligible && (run.length === 0 || sig(run[run.length - 1]) === sig(q))) {
+      run.push(q);
+    } else {
+      flush();
+      if (eligible) run.push(q);
+      else blocks.push({ kind: "single", q });
+    }
+  }
+  flush();
+  return blocks;
+}
+
+function categoryLabel(cat: string | null, locale: Locale): string {
+  const cs = locale === "cs";
+  const m: Record<string, [string, string]> = {
+    behavioral: ["Behaviour & collaboration", "Chování a spolupráce"],
+    manager: ["Leadership & manager", "Vedení a manažer"],
+  };
+  const e = cat ? m[cat] : undefined;
+  return e ? (cs ? e[1] : e[0]) : cs ? "Hodnocení" : "Ratings";
+}
 
 export default function FeedbackForm({
   assignment,
@@ -105,6 +145,7 @@ export default function FeedbackForm({
   const title = assignment.type === "self" ? assignmentTypeLabel("self", locale) : recipient;
   const answered = questions.filter((q) => !isEmpty(answers[q.id])).length;
   const total = questions.length;
+  const blocks = groupQuestions(questions);
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8 pb-28">
@@ -122,6 +163,21 @@ export default function FeedbackForm({
         </p>
       </div>
 
+      {editable && (
+        <PageGuide
+          id="form"
+          title={cs ? "Jak formulář vyplnit" : "How to fill this in"}
+          points={[
+            cs
+              ? "U tabulkových otázek vyberte v každém řádku, jak často tvrzení platí (jeden kroužek na řádek)."
+              : "For the table questions, pick how often each statement is true — one circle per row.",
+            cs ? "Povinné otázky jsou označené *." : "Required questions are marked with *.",
+            cs ? "Ukládá se průběžně; odešlete tlačítkem dole." : "It autosaves; submit with the button at the bottom.",
+            cs ? "Vaše odpovědi jsou pro příjemce anonymní." : "Your answers are anonymous to the recipient.",
+          ]}
+        />
+      )}
+
       {!editable && (
         <p className="mb-4 flex items-center gap-2 rounded-xl bg-sun/20 px-3 py-2 text-sm text-ink">
           <Icon name="info" size={16} />
@@ -136,25 +192,17 @@ export default function FeedbackForm({
       )}
 
       <div className="space-y-4">
-        {questions.map((q, i) => (
-          <fieldset key={q.id} disabled={!editable} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
-            <legend className="mb-3 flex w-full items-start gap-2 text-sm font-medium text-ink">
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-aqua/10 text-xs font-semibold text-aqua">
-                {i + 1}
-              </span>
-              <span className="pt-0.5">
-                {qText(q, locale)}
-                {q.is_required && <span className="text-red-500"> *</span>}
-              </span>
-            </legend>
-            <div className="pl-8">{renderInput(q, answers[q.id], locale, setAnswer)}</div>
-          </fieldset>
-        ))}
+        {blocks.map((b, i) =>
+          b.kind === "matrix" ? (
+            <MatrixBlock key={`m${i}`} block={b} answers={answers} setAnswer={setAnswer} locale={locale} editable={editable} />
+          ) : (
+            <SingleBlock key={b.q.id} q={b.q} answers={answers} setAnswer={setAnswer} locale={locale} editable={editable} />
+          ),
+        )}
       </div>
 
       {error && <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-      {/* sticky action bar */}
       <div className="sticky bottom-4 mt-6">
         <div className="flex items-center gap-3 rounded-2xl bg-white/95 p-3 shadow-lg ring-1 ring-black/[0.08] backdrop-blur">
           <div className="min-w-0 flex-1">
@@ -189,12 +237,98 @@ function isEmpty(a: Answer | undefined): boolean {
   return a.scale_value == null && a.choice_value == null && !(a.text_value && a.text_value.trim());
 }
 
-function renderInput(
-  q: Question,
-  a: Answer | undefined,
-  locale: Locale,
-  setAnswer: (qid: string, patch: Partial<Answer>, debounce?: boolean) => void,
-) {
+function MatrixBlock({
+  block,
+  answers,
+  setAnswer,
+  locale,
+  editable,
+}: {
+  block: Extract<Block, { kind: "matrix" }>;
+  answers: Record<string, Answer>;
+  setAnswer: SetAnswer;
+  locale: Locale;
+  editable: boolean;
+}) {
+  const cs = locale === "cs";
+  return (
+    <fieldset disabled={!editable} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
+      <legend className="text-sm font-semibold text-ink">{categoryLabel(block.category, locale)}</legend>
+      <p className="mb-3 mt-1 text-xs text-ink-600">
+        {cs ? "U každého tvrzení vyberte, jak často platí." : "For each statement, choose how often it's true."}
+      </p>
+      <div className="-mx-2 overflow-x-auto px-2">
+        <table className="w-full min-w-[480px] border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="w-2/5" />
+              {block.options.map((o) => (
+                <th key={o.value} className="px-1 pb-2 text-center align-bottom text-[11px] font-medium leading-tight text-ink-600">
+                  {optLabel(o, locale)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.items.map((q) => {
+              const sel = answers[q.id]?.scale_value ?? null;
+              return (
+                <tr key={q.id} className="border-t border-black/[0.06]">
+                  <td className="py-2.5 pr-3 align-middle text-ink">
+                    {qText(q, locale)}
+                    {q.is_required && <span className="text-red-500"> *</span>}
+                  </td>
+                  {block.options.map((o) => {
+                    const on = sel === o.value;
+                    return (
+                      <td key={o.value} className="px-1 text-center align-middle">
+                        <button
+                          type="button"
+                          onClick={() => setAnswer(q.id, { scale_value: o.value })}
+                          aria-label={`${qText(q, locale)} — ${optLabel(o, locale)}`}
+                          aria-pressed={on}
+                          className="mx-auto grid h-7 w-7 place-items-center rounded-full ring-1 ring-black/15 transition hover:ring-aqua"
+                        >
+                          {on && <span className="h-3.5 w-3.5 rounded-full bg-aqua" />}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </fieldset>
+  );
+}
+
+function SingleBlock({
+  q,
+  answers,
+  setAnswer,
+  locale,
+  editable,
+}: {
+  q: Question;
+  answers: Record<string, Answer>;
+  setAnswer: SetAnswer;
+  locale: Locale;
+  editable: boolean;
+}) {
+  return (
+    <fieldset disabled={!editable} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/[0.06]">
+      <legend className="mb-3 text-sm font-medium text-ink">
+        {qText(q, locale)}
+        {q.is_required && <span className="text-red-500"> *</span>}
+      </legend>
+      {renderInput(q, answers[q.id], locale, setAnswer)}
+    </fieldset>
+  );
+}
+
+function renderInput(q: Question, a: Answer | undefined, locale: Locale, setAnswer: SetAnswer) {
   if (q.type === "text") {
     return (
       <textarea
@@ -241,12 +375,12 @@ function renderInput(
             type="button"
             onClick={() => setAnswer(q.id, q.type === "multi_choice" ? { choice_value: val } : { scale_value: o.value })}
             className={cn(
-              "flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition",
+              "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition",
               isSel ? "border-aqua bg-aqua/10 font-medium text-aqua" : "border-black/10 text-ink hover:border-black/25",
             )}
           >
-            {optLabel(o, locale)}
-            {isSel && <Icon name="check" size={16} />}
+            <span>{optLabel(o, locale)}</span>
+            {isSel && <Icon name="check" size={16} className="shrink-0" />}
           </button>
         );
       })}

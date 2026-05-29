@@ -8,6 +8,7 @@ import { dict } from "@/lib/i18n";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, Badge, ProgressBar, type Tone } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
+import { PageGuide } from "@/components/PageGuide";
 
 const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 
@@ -52,6 +53,15 @@ export default async function Home() {
 
   const statusTone: Tone = cyc?.status === "open" ? "mint" : cyc?.status === "published" ? "aqua" : "neutral";
 
+  const guide = [
+    cs ? "Moje formuláře: vyplňte zpětnou vazbu — sebehodnocení, nadřízený, podřízení a kolegové." : "My forms: give your feedback — self, manager (upward), reports (downward) and peers.",
+    cs ? "Výsledky: anonymní souhrn zpětné vazby, kterou jste dostali." : "Results: the anonymized summary of feedback you received.",
+  ];
+  if (me.is_super_admin || me.role !== "ic")
+    guide.push(cs ? "Přehled: kdo už odeslal, podle týmu nebo manažera." : "Report: who has submitted, by team or manager.");
+  if (me.is_super_admin)
+    guide.push(cs ? "Administrace: otevřít cyklus, nakreslit graf, publikovat výsledky." : "Admin: open a cycle, draw the feedback graph, publish results.");
+
   return (
     <>
       <AppHeader me={me} locale={locale} />
@@ -82,6 +92,12 @@ export default async function Home() {
             </div>
           )}
         </Card>
+
+        <PageGuide
+          id="dashboard"
+          title={cs ? "Vítejte — co tu můžete dělat" : "Welcome — here's what you can do"}
+          points={guide}
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           {tiles.map((tile) => (

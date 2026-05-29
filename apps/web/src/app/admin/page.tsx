@@ -36,7 +36,7 @@ export default async function AdminPage() {
   return (
     <>
       <AppHeader me={me} locale={locale} active="admin" />
-      <AdminPanel cycles={(cycles ?? []) as EvaluationCycle[]} stats={stats} />
+      <AdminPanel cycles={(cycles ?? []) as EvaluationCycle[]} stats={stats} locale={locale} />
     </>
   );
 }

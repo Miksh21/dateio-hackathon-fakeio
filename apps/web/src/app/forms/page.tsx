@@ -8,6 +8,7 @@ import { dict, assignmentTypeLabel, statusLabel, type Locale } from "@/lib/i18n"
 import { AppHeader } from "@/components/AppHeader";
 import { Card, PageHeader, Badge, ProgressBar, EmptyState, type Tone } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { PageGuide } from "@/components/PageGuide";
 import type { AssignmentType } from "@/lib/types";
 
 type Row = {
@@ -40,6 +41,18 @@ export default async function FormsPage() {
       <AppHeader me={me} locale={locale} active="forms" />
       <main className="mx-auto max-w-3xl px-4 py-8">
         <PageHeader title={t.myForms} subtitle={cs ? "Zpětná vazba, kterou máte poskytnout" : "Feedback you've been asked to give"} />
+
+        <PageGuide
+          id="forms"
+          title={cs ? "Co tu dělat" : "What to do here"}
+          points={[
+            cs
+              ? "Každá karta je jeden člověk, kterého hodnotíte — sebe, nadřízeného (nahoru), podřízené (dolů) nebo kolegu."
+              : "Each card is one person you review — yourself, your manager (upward), your reports (downward), or a peer.",
+            cs ? "Otevřete ji, odpovězte a odešlete. Ukládá se průběžně." : "Open it, answer the questions, and submit. It autosaves.",
+            cs ? "Vaše odpovědi jsou pro příjemce anonymní — zobrazují se souhrnně." : "Your answers are anonymous to the recipient — shown aggregated with others.",
+          ]}
+        />
 
         {list.length > 0 && (
           <Card className="mb-6">
