@@ -16,7 +16,7 @@ export function AppHeader({
 }: {
   me: Me;
   locale: Locale;
-  active?: "forms" | "results" | "report" | "admin";
+  active?: "forms" | "results" | "report" | "admin" | "chat";
 }) {
   const t = dict[locale];
   const demo = DEMO_MODE;
@@ -24,6 +24,7 @@ export function AppHeader({
     [
       { key: "forms", href: "/forms", label: t.myForms, icon: "forms", show: true },
       { key: "results", href: "/results", label: t.results, icon: "results", show: true },
+      { key: "chat", href: "/chat", label: t.chat, icon: "sparkles", show: true },
       { key: "report", href: "/report", label: t.report, icon: "report", show: me.is_super_admin || me.role !== "ic" },
       { key: "admin", href: "/admin", label: t.admin, icon: "admin", show: me.is_super_admin },
     ] as { key: typeof active; href: string; label: string; icon: IconName; show: boolean }[]
