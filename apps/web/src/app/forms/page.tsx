@@ -10,6 +10,7 @@ import { Card, PageHeader, Badge, ProgressBar, EmptyState, type Tone } from "@/c
 import { Icon } from "@/components/Icon";
 import { PageGuide } from "@/components/PageGuide";
 import type { AssignmentType } from "@/lib/types";
+import { getCurrentCycleId } from "@/lib/cycle";
 
 type Row = {
   id: string;
@@ -20,7 +21,6 @@ type Row = {
   recipient_job_title: string | null;
 };
 
-const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const TYPE_TONE: Record<string, Tone> = { self: "sky", upward: "lavender", downward: "pearl", peer: "mint" };
 
 export default async function FormsPage() {
@@ -31,6 +31,7 @@ export default async function FormsPage() {
   const t = dict[locale];
   const cs = locale === "cs";
 
+  const CYCLE = await getCurrentCycleId();
   const supabase = await createClient();
   const { data } = await supabase.from("v_my_assignments").select("*").order("type");
   const { data: cyc } = await supabase.from("evaluation_cycles").select("status").eq("id", CYCLE).maybeSingle();

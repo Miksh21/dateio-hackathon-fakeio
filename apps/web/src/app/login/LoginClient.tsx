@@ -68,8 +68,9 @@ export function LoginClient() {
     setInfo(null);
     setLoading(true);
     try {
-      // The server gates the allowlist and always returns the same neutral
-      // message, so we advance to the code step regardless (no enumeration).
+      // The server gates the directory (can_login) and always returns the same
+      // neutral message, so we advance to the code step regardless — no way to
+      // probe who is or isn't an employee.
       const res = await fetch("/api/auth/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,6 +136,34 @@ export function LoginClient() {
           </div>
 
           <div className="p-6">
+            {DEMO_MODE && (
+              <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-canvas p-1 ring-1 ring-black/[0.06]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView("demo");
+                    setStep("email");
+                    setError(null);
+                    setInfo(null);
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${view === "demo" ? "bg-white text-ink shadow-sm" : "text-ink-600 hover:text-ink"}`}
+                >
+                  {cs ? "Demo výběr" : "Demo picker"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView("email");
+                    setStep("email");
+                    setError(null);
+                    setInfo(null);
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${view === "email" ? "bg-white text-ink shadow-sm" : "text-ink-600 hover:text-ink"}`}
+                >
+                  {cs ? "E-mailový kód" : "Email code"}
+                </button>
+              </div>
+            )}
             {view === "demo" && DEMO_MODE ? (
               <>
                 <p className="mb-1 text-sm font-medium text-ink">{cs ? "Demo přihlášení" : "Demo sign-in"}</p>
@@ -176,9 +205,6 @@ export function LoginClient() {
                   ))}
                   {matches.length === 0 && <li className="px-1 py-2 text-xs text-ink-600">{cs ? "Nikdo nenalezen." : "No one found."}</li>}
                 </ul>
-                <button type="button" onClick={() => setView("email")} className="mt-4 w-full text-center text-xs text-ink-600 hover:text-ink">
-                  {cs ? "Přihlásit se e-mailovým kódem" : "Sign in with an email code instead"}
-                </button>
               </>
             ) : (
               <>
@@ -241,19 +267,6 @@ export function LoginClient() {
                       </button>
                     </div>
                   </form>
-                )}
-                {DEMO_MODE && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setView("demo");
-                      setStep("email");
-                      setError(null);
-                    }}
-                    className="mt-4 w-full text-center text-xs text-ink-600 hover:text-ink"
-                  >
-                    ← {cs ? "Zpět na demo výběr osoby" : "Back to demo person picker"}
-                  </button>
                 )}
               </>
             )}
