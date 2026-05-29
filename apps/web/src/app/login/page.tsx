@@ -99,6 +99,20 @@ export default function LoginPage() {
             >
               {loading ? t.loading : t.sendCode}
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!email.trim()) {
+                  setError("Enter your email first.");
+                  return;
+                }
+                setError(null);
+                setStep("code");
+              }}
+              className="w-full text-xs text-gray-500 hover:text-gray-900"
+            >
+              Already have a code?
+            </button>
           </form>
         ) : (
           <form onSubmit={verify} className="space-y-4">
