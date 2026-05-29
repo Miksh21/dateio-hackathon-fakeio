@@ -15,6 +15,21 @@ type Stats = Record<string, StatT>;
 
 const STATUS_TONE: Record<string, Tone> = { draft: "neutral", open: "mint", closed: "pearl", published: "aqua" };
 
+function cycleNote(status: string, cs: boolean): string {
+  switch (status) {
+    case "draft":
+      return cs ? "Koncept — otevřením spustíte sběr." : "Draft — open it to start collecting.";
+    case "open":
+      return cs ? "Probíhá sběr zpětné vazby." : "Collecting feedback.";
+    case "closed":
+      return cs ? "Uzavřeno. Vygenerujte AI souhrny přes n8n, poté publikujte." : "Closed. Generate AI summaries via the n8n flow, then Publish.";
+    case "published":
+      return cs ? "Publikováno — oprávnění lidé vidí své výsledky." : "Published — permitted people can see their results.";
+    default:
+      return status;
+  }
+}
+
 export default function AdminPanel({ cycles, stats, locale }: { cycles: EvaluationCycle[]; stats: Stats; locale: Locale }) {
   const router = useRouter();
   const cs = locale === "cs";
@@ -78,6 +93,9 @@ export default function AdminPanel({ cycles, stats, locale }: { cycles: Evaluati
           cs ? "Otevřít editor grafu: nakreslete, kdo koho hodnotí (manažeři → podřízení, kolegové)." : "Open graph editor: draw who reviews whom (managers → reports, peers).",
           cs ? "Po úpravě grafu znovu klikněte Otevřít + generovat." : "After editing the graph, click Open + generate again to apply.",
           cs ? "Publikovat: zpřístupní výsledky zaměstnancům." : "Publish: makes results visible to employees.",
+          cs
+            ? "AI souhrny: po uzavření je vygeneruje n8n flow (zatím ručně), pak je vidí oprávnění lidé."
+            : "AI summaries: after closing, the n8n flow generates them (manual for now); permitted people then read them.",
         ]}
       />
 
@@ -127,6 +145,8 @@ export default function AdminPanel({ cycles, stats, locale }: { cycles: Evaluati
                 </div>
                 <ProgressBar value={st.submitted} max={st.assignments} tone="mint" />
               </div>
+
+              <p className="mt-3 text-xs text-ink-600">{cycleNote(c.status, cs)}</p>
 
               <div className="mt-4 border-t border-black/[0.06] pt-3">
                 <Link href="/admin/graph" className={buttonClass("secondary")}>

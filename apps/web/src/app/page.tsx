@@ -62,6 +62,13 @@ export default async function Home() {
   if (me.is_super_admin)
     guide.push(cs ? "Administrace: otevřít cyklus, nakreslit graf, publikovat výsledky." : "Admin: open a cycle, draw the feedback graph, publish results.");
 
+  const statusMsg: Record<string, { text: string; cls: string; icon: IconName }> = {
+    open: { text: cs ? "Sběr zpětné vazby probíhá — vyplňte své formuláře." : "Feedback is open — complete your forms.", cls: "bg-aqua/10 text-aqua-700", icon: "info" },
+    closed: { text: cs ? "Sběr uzavřen. Souhrny teď připravuje AI." : "Collection closed. AI is now preparing the summaries.", cls: "bg-sun/20 text-ink", icon: "clock" },
+    published: { text: cs ? "Výsledky jsou publikované — otevřete Výsledky." : "Results are published — open Results to see yours.", cls: "bg-mint-light text-aqua-700", icon: "check" },
+  };
+  const sMsg = cyc?.status ? statusMsg[cyc.status] : undefined;
+
   return (
     <>
       <AppHeader me={me} locale={locale} />
@@ -89,6 +96,12 @@ export default async function Home() {
                 </span>
               </div>
               <ProgressBar value={done} max={total} tone={done === total ? "mint" : "aqua"} />
+            </div>
+          )}
+          {sMsg && (
+            <div className={`mt-4 flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${sMsg.cls}`}>
+              <Icon name={sMsg.icon} size={16} />
+              <span>{sMsg.text}</span>
             </div>
           )}
         </Card>

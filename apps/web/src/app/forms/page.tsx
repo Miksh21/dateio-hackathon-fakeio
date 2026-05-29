@@ -20,6 +20,7 @@ type Row = {
   recipient_job_title: string | null;
 };
 
+const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const TYPE_TONE: Record<string, Tone> = { self: "sky", upward: "lavender", downward: "pearl", peer: "mint" };
 
 export default async function FormsPage() {
@@ -32,6 +33,7 @@ export default async function FormsPage() {
 
   const supabase = await createClient();
   const { data } = await supabase.from("v_my_assignments").select("*").order("type");
+  const { data: cyc } = await supabase.from("evaluation_cycles").select("status").eq("id", CYCLE).maybeSingle();
   const list = (data ?? []) as Row[];
   const todo = list.filter((a) => a.status !== "submitted");
   const done = list.filter((a) => a.status === "submitted");
@@ -53,6 +55,19 @@ export default async function FormsPage() {
             cs ? "Vaše odpovědi jsou pro příjemce anonymní — zobrazují se souhrnně." : "Your answers are anonymous to the recipient — shown aggregated with others.",
           ]}
         />
+
+        {(cyc?.status === "closed" || cyc?.status === "published") && (
+          <div className="mb-6 flex items-center gap-2 rounded-xl bg-sun/20 px-3 py-2 text-sm text-ink">
+            <Icon name="info" size={16} />
+            {cyc.status === "published"
+              ? cs
+                ? "Sběr je uzavřen a výsledky jsou publikované — otevřete Výsledky."
+                : "Collection is closed and results are published — see Results."
+              : cs
+                ? "Sběr zpětné vazby byl uzavřen. Formuláře jsou jen ke čtení; AI připravuje souhrny."
+                : "Feedback collection has closed. Forms are read-only; AI is preparing the summaries."}
+          </div>
+        )}
 
         {list.length > 0 && (
           <Card className="mb-6">
