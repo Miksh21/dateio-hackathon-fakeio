@@ -13,11 +13,13 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const t = dict[locale];
 
-  async function sendCode(e: React.FormEvent) {
-    e.preventDefault();
+  // Request a fresh OTP code by email. Shared by the email form and "Resend".
+  async function requestCode(): Promise<boolean> {
     setError(null);
+    setInfo(null);
     setLoading(true);
     try {
       const supabase = createClient();
@@ -27,19 +29,29 @@ export default function LoginPage() {
       if (rpcErr) throw rpcErr;
       if (!allowed) {
         setError(t.notInDirectory);
-        return;
+        return false;
       }
       const { error: otpErr } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: { shouldCreateUser: true },
       });
       if (otpErr) throw otpErr;
-      setStep("code");
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setLoading(false);
     }
+  }
+
+  async function onSendCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (await requestCode()) setStep("code");
+  }
+
+  async function onResend() {
+    if (await requestCode()) setInfo(t.codeResent);
   }
 
   async function verify(e: React.FormEvent) {
@@ -79,7 +91,7 @@ export default function LoginPage() {
         <p className="mb-6 text-sm text-gray-500">{t.tagline}</p>
 
         {step === "email" ? (
-          <form onSubmit={sendCode} className="space-y-4">
+          <form onSubmit={onSendCode} className="space-y-4">
             <label className="block">
               <span className="mb-1 block text-sm font-medium text-gray-700">{t.emailLabel}</span>
               <input
@@ -99,25 +111,11 @@ export default function LoginPage() {
             >
               {loading ? t.loading : t.sendCode}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!email.trim()) {
-                  setError("Enter your email first.");
-                  return;
-                }
-                setError(null);
-                setStep("code");
-              }}
-              className="w-full text-xs text-gray-500 hover:text-gray-900"
-            >
-              Already have a code?
-            </button>
           </form>
         ) : (
           <form onSubmit={verify} className="space-y-4">
             <p className="text-sm text-gray-600">
-              {t.checkEmail} <span className="font-medium">{email}</span>
+              {t.checkEmail} <span className="font-medium text-gray-900">{email}</span>
             </p>
             <label className="block">
               <span className="mb-1 block text-sm font-medium text-gray-700">{t.codeLabel}</span>
@@ -140,20 +138,34 @@ export default function LoginPage() {
             >
               {loading ? t.loading : t.verify}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStep("email");
-                setCode("");
-                setError(null);
-              }}
-              className="w-full text-xs text-gray-500 hover:text-gray-900"
-            >
-              ← {t.emailLabel}
-            </button>
+            <div className="flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("email");
+                  setCode("");
+                  setError(null);
+                  setInfo(null);
+                }}
+                className="text-gray-500 hover:text-gray-900"
+              >
+                ← {t.differentEmail}
+              </button>
+              <button
+                type="button"
+                onClick={onResend}
+                disabled={loading}
+                className="font-medium text-gray-600 hover:text-gray-900 disabled:opacity-50"
+              >
+                {t.resendCode}
+              </button>
+            </div>
           </form>
         )}
 
+        {info && (
+          <p className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{info}</p>
+        )}
         {error && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}

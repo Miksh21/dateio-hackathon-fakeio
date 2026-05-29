@@ -3,23 +3,75 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   MiniMap,
+  Handle,
+  Position,
+  ConnectionMode,
   addEdge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   MarkerType,
   type Node,
   type Edge,
   type Connection,
+  type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { createClient } from "@/lib/supabase/client";
 import type { RelationshipType } from "@/lib/types";
 
-type Emp = { id: string; first_name: string; last_name: string; division: string | null; role: string };
-type Rel = { id: string; from_employee_id: string; to_employee_id: string; relationship_type: RelationshipType };
+type Emp = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  division: string | null;
+  role: string;
+};
+type Rel = {
+  id: string;
+  from_employee_id: string;
+  to_employee_id: string;
+  relationship_type: RelationshipType;
+};
+type Props = { cycleId: string; employees: Emp[]; relationships: Rel[] };
+
+// Custom node: 4 handles. Top/bottom carry the vertical "manages" edges; left/right
+// carry the horizontal "peer" edges so peers connect mid-to-mid in a straight line.
+function PersonNode({ data, selected }: NodeProps) {
+  const label = (data as { label?: string }).label ?? "";
+  const role = (data as { role?: string }).role ?? "ic";
+  const border =
+    role === "ceo"
+      ? "2px solid #b91c1c"
+      : role === "manager"
+        ? "2px solid #2563eb"
+        : "1px solid #d1d5db";
+  return (
+    <div
+      style={{
+        fontSize: 11,
+        width: 200,
+        padding: "6px 8px",
+        borderRadius: 8,
+        background: "white",
+        border,
+        boxShadow: selected ? "0 0 0 3px rgba(37,99,235,0.45)" : undefined,
+      }}
+    >
+      <Handle type="target" id="t" position={Position.Top} style={{ background: "#2563eb" }} />
+      <Handle type="source" id="b" position={Position.Bottom} style={{ background: "#2563eb" }} />
+      <Handle type="target" id="l" position={Position.Left} style={{ background: "#6b7280" }} />
+      <Handle type="source" id="r" position={Position.Right} style={{ background: "#6b7280" }} />
+      {label}
+    </div>
+  );
+}
+
+const nodeTypes = { person: PersonNode };
 
 function relToEdge(r: Rel): Edge {
   const peer = r.relationship_type === "peer";
@@ -27,6 +79,10 @@ function relToEdge(r: Rel): Edge {
     id: r.id,
     source: r.from_employee_id,
     target: r.to_employee_id,
+    // manages: bottom -> top (vertical); peer: right -> left (horizontal, mid-to-mid)
+    sourceHandle: peer ? "r" : "b",
+    targetHandle: peer ? "l" : "t",
+    type: peer ? "straight" : "smoothstep",
     animated: !peer,
     style: peer ? { stroke: "#6b7280", strokeDasharray: "6 4" } : { stroke: "#2563eb" },
     markerEnd: peer ? undefined : { type: MarkerType.ArrowClosed, color: "#2563eb" },
@@ -35,18 +91,12 @@ function relToEdge(r: Rel): Edge {
   };
 }
 
-export default function GraphEditor({
-  cycleId,
-  employees,
-  relationships,
-}: {
-  cycleId: string;
-  employees: Emp[];
-  relationships: Rel[];
-}) {
+function Flow({ cycleId, employees, relationships }: Props) {
   const supabase = useMemo(() => createClient(), []);
+  const { setCenter } = useReactFlow();
   const [edgeType, setEdgeType] = useState<RelationshipType>("manages");
   const [msg, setMsg] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const initialNodes: Node[] = useMemo(() => {
     const divs = Array.from(new Set(employees.map((e) => e.division ?? "—")));
@@ -57,26 +107,17 @@ export default function GraphEditor({
       const row = (rowByDiv[d] = (rowByDiv[d] ?? 0) + 1) - 1;
       return {
         id: e.id,
-        position: { x: col * 250, y: row * 70 },
-        data: { label: `${e.last_name}, ${e.first_name}${e.role !== "ic" ? ` · ${e.role}` : ""}` },
-        style: {
-          fontSize: 11,
-          width: 200,
-          padding: 4,
-          borderRadius: 8,
-          background: "white",
-          border:
-            e.role === "ceo"
-              ? "2px solid #b91c1c"
-              : e.role === "manager"
-                ? "2px solid #2563eb"
-                : "1px solid #d1d5db",
+        type: "person",
+        position: { x: col * 280, y: row * 84 },
+        data: {
+          label: `${e.last_name}, ${e.first_name}${e.role !== "ic" ? ` · ${e.role}` : ""}`,
+          role: e.role,
         },
       } satisfies Node;
     });
   }, [employees]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(relationships.map(relToEdge));
 
   const onConnect = useCallback(
@@ -122,14 +163,70 @@ export default function GraphEditor({
     [supabase],
   );
 
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return employees
+      .filter((e) =>
+        `${e.first_name} ${e.last_name} ${e.division ?? ""}`.toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [query, employees]);
+
+  const focusPerson = useCallback(
+    (id: string) => {
+      const n = nodes.find((x) => x.id === id);
+      if (!n) return;
+      setCenter(n.position.x + 100, n.position.y + 18, { zoom: 1.4, duration: 600 });
+      setNodes((nds) => nds.map((x) => ({ ...x, selected: x.id === id })));
+      setQuery("");
+    },
+    [nodes, setCenter, setNodes],
+  );
+
   return (
     <div className="flex h-screen flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-2 text-sm">
-        <a href="/admin" className="text-gray-500 hover:text-gray-900">← Admin</a>
+        <a href="/admin" className="text-gray-500 hover:text-gray-900">
+          ← Admin
+        </a>
         <span className="font-medium">Feedback graph</span>
-        <span className="text-xs text-gray-400">
-          drag from a node’s handle to another to connect · select an edge + Backspace to remove
+
+        <div className="relative">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search people…"
+            className="w-52 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none"
+          />
+          {matches.length > 0 && (
+            <ul className="absolute z-20 mt-1 max-h-72 w-64 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+              {matches.map((e) => (
+                <li key={e.id}>
+                  <button
+                    type="button"
+                    onClick={() => focusPerson(e.id)}
+                    className="block w-full px-3 py-1.5 text-left text-xs hover:bg-gray-100"
+                  >
+                    <span className="text-gray-900">
+                      {e.last_name}, {e.first_name}
+                    </span>
+                    <span className="text-gray-400">
+                      {" · "}
+                      {e.division ?? "—"}
+                      {e.role !== "ic" ? ` · ${e.role}` : ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <span className="hidden text-xs text-gray-400 lg:inline">
+          peers connect side-to-side · manages connects top→bottom · select an edge + Backspace to remove
         </span>
+
         <div className="ml-auto flex items-center gap-1">
           <span className="text-xs text-gray-500">New edge:</span>
           <button
@@ -153,6 +250,8 @@ export default function GraphEditor({
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          nodeTypes={nodeTypes}
+          connectionMode={ConnectionMode.Loose}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -166,5 +265,13 @@ export default function GraphEditor({
         </ReactFlow>
       </div>
     </div>
+  );
+}
+
+export default function GraphEditor(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <Flow {...props} />
+    </ReactFlowProvider>
   );
 }
