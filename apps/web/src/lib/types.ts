@@ -3,9 +3,10 @@
 
 export type AppRole = "ceo" | "manager" | "ic";
 export type CycleStatus = "draft" | "open" | "closed" | "published";
+export type MatchingStatus = "draft" | "in_review" | "approved" | "active";
 export type RelationshipType = "manages" | "peer";
 export type AssignmentType = "self" | "upward" | "downward" | "peer";
-export type AssignmentStatus = "pending" | "draft" | "submitted";
+export type AssignmentStatus = "pending" | "draft" | "submitted" | "proposed";
 export type QuestionType = "scale_5" | "scale_10" | "text" | "multi_choice";
 
 export interface Employee {
@@ -26,6 +27,7 @@ export interface EvaluationCycle {
   id: string;
   name: string;
   status: CycleStatus;
+  matching_status: MatchingStatus;
   form_start: string | null;
   form_end: string | null;
   anon_min_responses: number;
