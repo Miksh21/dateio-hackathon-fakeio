@@ -114,7 +114,7 @@ export default function FeedbackForm({
       setSaveState("saved");
     } catch (e) {
       setSaveState("idle");
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errMsg(e));
     }
   }
 
@@ -136,7 +136,7 @@ export default function FeedbackForm({
       router.push("/forms");
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errMsg(e));
       setSubmitting(false);
     }
   }
@@ -235,6 +235,18 @@ export default function FeedbackForm({
 function isEmpty(a: Answer | undefined): boolean {
   if (!a) return true;
   return a.scale_value == null && a.choice_value == null && !(a.text_value && a.text_value.trim());
+}
+
+// Supabase/PostgREST errors are plain objects, not Error instances — String()
+// on them yields "[object Object]". Pull out the real message.
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object") {
+    const o = e as { message?: unknown; error_description?: unknown; details?: unknown; code?: unknown };
+    const m = o.message ?? o.error_description ?? o.details;
+    if (m != null && m !== "") return o.code ? `${String(m)} (${String(o.code)})` : String(m);
+  }
+  return String(e);
 }
 
 function MatrixBlock({
