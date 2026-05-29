@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentEmployee } from "@/lib/auth";
@@ -5,16 +6,18 @@ import { hasSupabaseEnv } from "@/lib/env";
 import { getLocale } from "@/lib/locale";
 import { dict } from "@/lib/i18n";
 import { AppHeader } from "@/components/AppHeader";
-import { Card, PageHeader, Badge, EmptyState } from "@/components/ui";
+import { Card, PageHeader, Badge, EmptyState, cn } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { PageGuide } from "@/components/PageGuide";
 
 const CYCLE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const SLICES = ["all", "self", "peer", "downward", "upward"] as const;
+type Slice = (typeof SLICES)[number];
 
 type Q = { id: string; text: string; category: string | null; type: string };
-type Agg = { question_id: string; response_count: number; avg_scale: number | string | null };
-type Txt = { response_id: string; question_id: string; text_value: string };
 type Person = { id: string; first_name: string; last_name: string };
+type ScaleRow = { q: Q; count: number; avg: number | null };
+type TextRow = { response_id: string; question_id: string; text_value: string };
 type ValueRow = {
   recipient_id: string;
   first_name: string;
@@ -27,10 +30,21 @@ function barColor(pct: number): string {
   return pct >= 70 ? "#3f7178" : pct >= 40 ? "#deb869" : "#e0726a";
 }
 
+function sliceLabel(s: Slice, cs: boolean): string {
+  const m: Record<Slice, [string, string]> = {
+    all: ["All", "Vše"],
+    self: ["Self", "Sebehodnocení"],
+    peer: ["Peers", "Kolegové"],
+    downward: ["From manager", "Od manažera"],
+    upward: ["From reports", "Od podřízených"],
+  };
+  return cs ? m[s][1] : m[s][0];
+}
+
 export default async function ResultsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ recipient?: string }>;
+  searchParams: Promise<{ recipient?: string; slice?: string }>;
 }) {
   if (!hasSupabaseEnv()) redirect("/");
   const me = await getCurrentEmployee();
@@ -40,42 +54,68 @@ export default async function ResultsPage({
   const cs = locale === "cs";
   const sp = await searchParams;
   const target = sp.recipient || me.id;
+  const slice: Slice = (SLICES as readonly string[]).includes(sp.slice ?? "") ? (sp.slice as Slice) : "all";
 
   const supabase = await createClient();
   const { data: peopleData } = await supabase.from("employees").select("id,first_name,last_name").order("last_name");
   const people = (peopleData ?? []) as Person[];
   const targetPerson = people.find((p) => p.id === target);
 
-  const [{ data: aggData }, { data: txtData }, { data: qData }, { data: vmData }, { data: sumData }] = await Promise.all([
-    supabase.from("v_received_aggregated").select("question_id,response_count,avg_scale").eq("cycle_id", CYCLE).eq("recipient_id", target),
-    supabase.from("v_received_text_anon").select("response_id,question_id,text_value").eq("cycle_id", CYCLE).eq("recipient_id", target),
-    supabase.from("questions").select("id,text,category,type").eq("cycle_id", CYCLE).order("sort_order"),
-    supabase.from("v_value_matrix").select("recipient_id,first_name,last_name,self_value,manager_value").eq("cycle_id", CYCLE),
-    supabase.from("result_summaries").select("ai_summary,theme_tags").eq("cycle_id", CYCLE).eq("recipient_id", target).eq("scope", "overall").maybeSingle(),
-  ]);
-  const summary = sumData as { ai_summary: string | null; theme_tags: string[] | null } | null;
-
+  const { data: qData } = await supabase.from("questions").select("id,text,category,type").eq("cycle_id", CYCLE).order("sort_order");
   const qmap = new Map(((qData ?? []) as Q[]).map((q) => [q.id, q]));
-  const scaleRows = ((aggData ?? []) as Agg[])
-    .map((a) => ({ q: qmap.get(a.question_id), count: a.response_count, avg: a.avg_scale == null ? null : Number(a.avg_scale) }))
-    .filter((r): r is { q: Q; count: number; avg: number | null } => !!r.q && (r.q.type === "scale_5" || r.q.type === "scale_10"))
-    .sort((x, y) => (y.avg ?? 0) - (x.avg ?? 0));
-  const texts = (txtData ?? []) as Txt[];
+  const isScale = (q: Q | undefined) => !!q && (q.type === "scale_5" || q.type === "scale_10");
 
-  const valuePoints = ((vmData ?? []) as ValueRow[])
-    .map((v) => ({
-      id: v.recipient_id,
-      name: `${v.first_name} ${v.last_name}`,
-      self: v.self_value == null ? null : Number(v.self_value),
-      mgr: v.manager_value == null ? null : Number(v.manager_value),
-    }))
-    .filter((v): v is { id: string; name: string; self: number; mgr: number } => v.self != null && v.mgr != null);
+  let scaleRows: ScaleRow[] = [];
+  let texts: TextRow[] = [];
+  let valuePoints: { id: string; name: string; self: number; mgr: number }[] = [];
+  let summary: { ai_summary: string | null; theme_tags: string[] | null } | null = null;
+
+  if (slice === "self") {
+    const { data } = await supabase
+      .from("v_self_assessment")
+      .select("question_id,scale_value,text_value")
+      .eq("cycle_id", CYCLE)
+      .eq("recipient_id", target);
+    const rows = (data ?? []) as { question_id: string; scale_value: number | null; text_value: string | null }[];
+    scaleRows = rows
+      .map((r) => ({ q: qmap.get(r.question_id)!, count: 1, avg: r.scale_value == null ? null : Number(r.scale_value) }))
+      .filter((r) => isScale(r.q) && r.avg != null)
+      .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
+    texts = rows
+      .filter((r) => r.text_value && r.text_value.trim())
+      .map((r) => ({ response_id: r.question_id, question_id: r.question_id, text_value: r.text_value as string }));
+  } else if (slice === "all") {
+    const [{ data: aggData }, { data: txtData }, { data: vmData }, { data: sumData }] = await Promise.all([
+      supabase.from("v_received_aggregated").select("question_id,response_count,avg_scale").eq("cycle_id", CYCLE).eq("recipient_id", target),
+      supabase.from("v_received_text_anon").select("response_id,question_id,text_value").eq("cycle_id", CYCLE).eq("recipient_id", target),
+      supabase.from("v_value_matrix").select("recipient_id,first_name,last_name,self_value,manager_value").eq("cycle_id", CYCLE),
+      supabase.from("result_summaries").select("ai_summary,theme_tags").eq("cycle_id", CYCLE).eq("recipient_id", target).eq("scope", "overall").maybeSingle(),
+    ]);
+    scaleRows = ((aggData ?? []) as { question_id: string; response_count: number; avg_scale: number | string | null }[])
+      .map((a) => ({ q: qmap.get(a.question_id)!, count: a.response_count, avg: a.avg_scale == null ? null : Number(a.avg_scale) }))
+      .filter((r) => isScale(r.q))
+      .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
+    texts = (txtData ?? []) as TextRow[];
+    valuePoints = ((vmData ?? []) as ValueRow[])
+      .map((v) => ({ id: v.recipient_id, name: `${v.first_name} ${v.last_name}`, self: v.self_value == null ? null : Number(v.self_value), mgr: v.manager_value == null ? null : Number(v.manager_value) }))
+      .filter((v): v is { id: string; name: string; self: number; mgr: number } => v.self != null && v.mgr != null);
+    summary = sumData as { ai_summary: string | null; theme_tags: string[] | null } | null;
+  } else {
+    const [{ data: aggData }, { data: txtData }] = await Promise.all([
+      supabase.from("v_received_aggregated_by_type").select("question_id,response_count,avg_scale").eq("cycle_id", CYCLE).eq("recipient_id", target).eq("assignment_type", slice),
+      supabase.from("v_received_text_by_type").select("response_id,question_id,text_value").eq("cycle_id", CYCLE).eq("recipient_id", target).eq("assignment_type", slice),
+    ]);
+    scaleRows = ((aggData ?? []) as { question_id: string; response_count: number; avg_scale: number | string | null }[])
+      .map((a) => ({ q: qmap.get(a.question_id)!, count: a.response_count, avg: a.avg_scale == null ? null : Number(a.avg_scale) }))
+      .filter((r) => isScale(r.q))
+      .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
+    texts = (txtData ?? []) as TextRow[];
+  }
 
   const hasTargetData = scaleRows.length > 0 || texts.length > 0;
-
   const resGuide = [
     cs ? "Toto je zpětná vazba o vás — souhrnná a anonymní; zobrazí se až po dostatku odpovědí." : "This is feedback about you — aggregated and anonymized; it appears only once enough people respond.",
-    cs ? "Hodnotová mapa porovnává vaše sebehodnocení a hodnocení manažerem." : "The value quadrant compares your self-rating with your manager's rating.",
+    cs ? "Přepínačem níže rozdělíte zpětnou vazbu podle zdroje (kolegové, manažer, podřízení, sebehodnocení)." : "Use the toggle below to break feedback down by source (peers, manager, reports, self).",
   ];
   if (me.is_super_admin || me.role !== "ic")
     resGuide.push(cs ? "Nahoře můžete přepnout, čí výsledky zobrazit." : "Use the selector at the top to view another person's results.");
@@ -86,30 +126,19 @@ export default async function ResultsPage({
       <main className="mx-auto max-w-3xl px-4 py-8">
         <PageHeader
           title={t.results}
-          subtitle={
-            targetPerson && targetPerson.id !== me.id
-              ? `${targetPerson.first_name} ${targetPerson.last_name}`
-              : cs
-                ? "Zpětná vazba, kterou jste dostali"
-                : "Feedback you received"
-          }
+          subtitle={targetPerson && targetPerson.id !== me.id ? `${targetPerson.first_name} ${targetPerson.last_name}` : cs ? "Zpětná vazba, kterou jste dostali" : "Feedback you received"}
           action={
             people.length > 1 ? (
               <form method="get" className="flex items-center gap-2">
-                <select
-                  name="recipient"
-                  defaultValue={target}
-                  className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-ink focus:border-aqua focus:outline-none"
-                >
+                <input type="hidden" name="slice" value={slice} />
+                <select name="recipient" defaultValue={target} className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-ink focus:border-aqua focus:outline-none">
                   {people.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.last_name}, {p.first_name}
                     </option>
                   ))}
                 </select>
-                <button className="rounded-xl bg-ink px-3 py-2 text-sm font-medium text-white hover:bg-ink/90">
-                  {cs ? "Zobrazit" : "View"}
-                </button>
+                <button className="rounded-xl bg-ink px-3 py-2 text-sm font-medium text-white hover:bg-ink/90">{cs ? "Zobrazit" : "View"}</button>
               </form>
             ) : undefined
           }
@@ -117,13 +146,29 @@ export default async function ResultsPage({
 
         <PageGuide id="results" title={cs ? "Jak číst výsledky" : "Reading your results"} points={resGuide} />
 
-        {valuePoints.length > 0 && (
+        {/* granularity toggle */}
+        <div className="mb-6 flex flex-wrap gap-2">
+          {SLICES.map((s) => (
+            <Link
+              key={s}
+              href={`/results?recipient=${target}&slice=${s}`}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                slice === s ? "bg-ink text-white" : "bg-white text-ink-600 ring-1 ring-black/10 hover:text-ink",
+              )}
+            >
+              {sliceLabel(s, cs)}
+            </Link>
+          ))}
+        </div>
+
+        {slice === "all" && valuePoints.length > 0 && (
           <Card className="mb-6">
             <ValueQuadrant points={valuePoints} targetId={target} locale={locale} />
           </Card>
         )}
 
-        {summary?.ai_summary && (
+        {slice === "all" && summary?.ai_summary && (
           <Card className="mb-6 bg-mint-light ring-mint">
             <h2 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-aqua-700">
               <Icon name="sparkles" size={16} /> {cs ? "AI shrnutí" : "AI summary"}
@@ -145,14 +190,22 @@ export default async function ResultsPage({
           <EmptyState
             icon={<Icon name="info" size={22} />}
             title={cs ? "Zatím nedostatek odpovědí" : "Not enough responses yet"}
-            hint={cs ? "Kvůli anonymitě se výsledky zobrazí až po dosažení prahu, nebo až bude cyklus publikován." : "Results appear once the anonymity threshold is met, or when the cycle is published."}
+            hint={
+              slice === "all"
+                ? cs
+                  ? "Kvůli anonymitě se výsledky zobrazí po dosažení prahu, nebo po publikování cyklu."
+                  : "Results appear once the anonymity threshold is met, or when the cycle is published."
+                : cs
+                  ? "V tomto pohledu není dost odpovědí k anonymnímu zobrazení."
+                  : "Not enough responses in this view to show anonymously."
+            }
           />
         )}
 
         {scaleRows.length > 0 && (
           <section className="mb-8">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-600">
-              {cs ? "Hodnocení (průměr)" : "Ratings (average)"}
+              {slice === "self" ? (cs ? "Vaše sebehodnocení" : "Your self-ratings") : cs ? "Hodnocení (průměr)" : "Ratings (average)"}
             </h2>
             <div className="space-y-3">
               {scaleRows.map(({ q, count, avg }) => {
@@ -170,7 +223,7 @@ export default async function ResultsPage({
                       <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: barColor(pct) }} />
                     </div>
                     <div className="mt-1.5 text-xs text-ink-600">
-                      {count} {cs ? "odpovědí" : "responses"}
+                      {slice === "self" ? (cs ? "sebehodnocení" : "self-assessment") : `${count} ${cs ? "odpovědí" : "responses"}`}
                     </div>
                   </Card>
                 );
@@ -182,7 +235,7 @@ export default async function ResultsPage({
         {texts.length > 0 && (
           <section>
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-600">
-              {cs ? "Komentáře (anonymní)" : "Comments (anonymized)"}
+              {slice === "self" ? (cs ? "Vaše odpovědi" : "Your answers") : cs ? "Komentáře (anonymní)" : "Comments (anonymized)"}
             </h2>
             <div className="space-y-2">
               {texts.map((tx) => (
@@ -219,7 +272,6 @@ function ValueQuadrant({
     return (h / 997 - 0.5) * 0.3;
   };
   const mid = 2.5;
-
   return (
     <>
       <h2 className="mb-1 text-sm font-semibold text-ink">

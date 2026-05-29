@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { dict, type Locale } from "@/lib/i18n";
@@ -20,15 +20,33 @@ export function LoginClient() {
   const [info, setInfo] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [goingTo, setGoingTo] = useState<string | null>(null);
+  const [roster, setRoster] = useState<DemoUser[]>(DEMO_USERS);
   const t = dict[locale];
   const cs = locale === "cs";
 
+  // Load the full roster for the picker (falls back to the hardcoded cohort).
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.rpc("demo_roster");
+        if (active && Array.isArray(data) && data.length) setRoster(data as DemoUser[]);
+      } catch {
+        /* keep fallback */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return DEMO_USERS.filter(
-      (u) => !q || `${u.first_name} ${u.last_name} ${u.email} ${u.division ?? ""}`.toLowerCase().includes(q),
-    );
-  }, [query]);
+    return roster
+      .filter((u) => !q || `${u.first_name} ${u.last_name} ${u.email} ${u.division ?? ""}`.toLowerCase().includes(q))
+      .slice(0, 50);
+  }, [query, roster]);
 
   async function pickDemo(u: DemoUser) {
     setGoingTo(u.email);
@@ -119,14 +137,13 @@ export function LoginClient() {
                 <p className="mb-4 text-xs text-ink-600">
                   {cs ? "Vyberte osobu a přihlaste se jako ona (jen pro demo)." : "Pick a person and sign in as them (demo only)."}
                 </p>
-                {DEMO_USERS.length > 6 && (
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder={cs ? "Hledat osobu…" : "Search a person…"}
-                    className="mb-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-ink-600/50 focus:border-aqua focus:outline-none focus:ring-2 focus:ring-aqua/30"
-                  />
-                )}
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  autoFocus
+                  placeholder={cs ? "Hledat osobu…" : "Search a person…"}
+                  className="mb-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-ink-600/50 focus:border-aqua focus:outline-none focus:ring-2 focus:ring-aqua/30"
+                />
                 <ul className="max-h-80 space-y-1 overflow-auto">
                   {matches.map((u) => (
                     <li key={u.email}>
