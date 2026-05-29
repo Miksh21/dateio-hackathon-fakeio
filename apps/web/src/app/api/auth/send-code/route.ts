@@ -1,13 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
+import { isEmailAllowed } from "@/lib/allowlist";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Step 1 of email login: gate the address SERVER-SIDE, then (if allowed) ask
-// Supabase Auth to email a 6-digit OTP. The gate is the can_login() RPC — the
-// live employee directory — so it never drifts from the data and there's no
-// hardcoded list to maintain.
+// Step 1 of email login: gate the address against the allowlist (server-side, so
+// it can't be bypassed from the browser) and, if allowed, ask Supabase Auth to
+// email a 6-digit OTP. Email delivery goes out via Supabase's SMTP integration
+// (Resend); Supabase owns code generation, expiry and single-use semantics.
 //
-// The response is ALWAYS this same neutral message: we never reveal whether an
-// address is a known employee (no account enumeration), and we never surface
+// The response is ALWAYS the same neutral message — we never reveal whether an
+// address is on the allowlist (no account enumeration), and we never surface
 // send errors or the code itself.
 const NEUTRAL = { message: "If this address is registered, a code has been sent." };
 
@@ -20,16 +21,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(NEUTRAL);
   }
 
-  if (email) {
+  if (email && isEmailAllowed(email)) {
     const supabase = await createClient();
-    const { data: allowed } = await supabase.rpc("can_login", { p_email: email });
-    if (allowed) {
-      // Gated by can_login (a real employee), so shouldCreateUser is safe: it
-      // lets an employee without a prior auth row sign in, and can't mint orphan
-      // users for non-employees (they never pass the gate). Errors are
-      // intentionally swallowed to keep the response neutral.
-      await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-    }
+    // Errors are intentionally swallowed to keep the response neutral.
+    await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
   }
 
   return NextResponse.json(NEUTRAL);
