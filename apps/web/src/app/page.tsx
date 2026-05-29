@@ -27,6 +27,7 @@ export default async function Home() {
   const cards = [
     { href: "/forms", title: t.myForms, sub: "Give your feedback", show: true },
     { href: "/results", title: t.results, sub: "Feedback you received", show: true },
+    { href: "/report", title: "Report", sub: "Completion by team / manager", show: me.is_super_admin || me.role !== "ic" },
     { href: "/admin", title: t.admin, sub: "Cycles, graph, questions", show: me.is_super_admin },
   ].filter((c) => c.show);
 
