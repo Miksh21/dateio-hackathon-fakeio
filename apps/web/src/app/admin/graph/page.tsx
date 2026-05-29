@@ -21,7 +21,7 @@ export default async function GraphPage() {
     .order("last_name");
   const { data: rels } = await supabase
     .from("cycle_relationships")
-    .select("id,from_employee_id,to_employee_id,relationship_type")
+    .select("id,from_employee_id,to_employee_id,relationship_type,origin")
     .eq("cycle_id", CYCLE);
 
   return <GraphEditor cycleId={CYCLE} employees={employees ?? []} relationships={rels ?? []} />;

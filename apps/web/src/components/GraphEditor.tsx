@@ -32,11 +32,13 @@ type Emp = {
   role: string;
   is_super_admin: boolean;
 };
+type Origin = "original" | "updated";
 type Rel = {
   id: string;
   from_employee_id: string;
   to_employee_id: string;
   relationship_type: RelationshipType;
+  origin?: Origin;
 };
 type Props = { cycleId: string; employees: Emp[]; relationships: Rel[] };
 
@@ -128,6 +130,8 @@ const nodeTypes = { person: PersonNode };
 
 function relToEdge(r: Rel): Edge {
   const peer = r.relationship_type === "peer";
+  const updated = (r.origin ?? "updated") === "updated";
+  const color = updated ? "#ea580c" : "#2563eb"; // orange = your edit, blue = original line
   return {
     id: r.id,
     source: r.from_employee_id,
@@ -136,9 +140,11 @@ function relToEdge(r: Rel): Edge {
     targetHandle: peer ? "l" : "t",
     type: peer ? "straight" : "smoothstep",
     animated: !peer,
-    data: { rel: r.relationship_type },
-    style: peer ? { stroke: "#6b7280", strokeDasharray: "6 4" } : { stroke: "#2563eb" },
-    markerEnd: peer ? undefined : { type: MarkerType.ArrowClosed, color: "#2563eb" },
+    data: { rel: r.relationship_type, origin: r.origin ?? "updated" },
+    style: peer
+      ? { stroke: color, strokeDasharray: "6 4" }
+      : { stroke: color, strokeWidth: updated ? 2 : 1 },
+    markerEnd: peer ? undefined : { type: MarkerType.ArrowClosed, color },
     label: r.relationship_type,
     labelStyle: { fontSize: 9, fill: "#6b7280" },
   };
@@ -235,9 +241,19 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             relationship currently selected in the builder.
           </li>
           <li>
-            <span className="font-medium">manages</span> = blue arrow, drawn top → bottom.{" "}
-            <span className="font-medium">peer</span> = grey dashed line, side-to-side. A peer link is shared — it
-            exists once per pair (no need to add it both ways).
+            <span className="font-medium">manages</span> = solid arrow, top → bottom.{" "}
+            <span className="font-medium">peer</span> = dashed line, side-to-side (one per pair).{" "}
+            <span className="font-medium text-blue-700">Blue</span> = an{" "}
+            <span className="font-medium">original</span> reporting line;{" "}
+            <span className="font-medium text-orange-600">orange</span> = an{" "}
+            <span className="font-medium">edit you made</span> (updated).
+          </li>
+          <li>
+            <span className="font-medium">Peers are automatic.</span> Everyone reporting to the same{" "}
+            <em>original</em> manager reviews each other — you don’t draw those lines. Feedback is mixed:{" "}
+            <span className="font-medium">upward/downward follow your edits</span>, while{" "}
+            <span className="font-medium">peer groups stay anchored to the original manager</span>. After editing,
+            click <span className="font-medium">Open + generate</span> in Admin to apply.
           </li>
           <li>
             Click a line and press <span className="font-medium">Backspace / Delete</span> to remove it.
@@ -247,11 +263,17 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             layout</span> re-arranges everyone into a clean hierarchy.
           </li>
         </ol>
-        <div className="mt-4 flex flex-wrap gap-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-red-700" /> CEO</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-blue-600" /> Manager</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-yellow-500 bg-yellow-50" /> Admin</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border border-gray-300" /> Team member</span>
+        <div className="mt-4 space-y-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          <div className="flex flex-wrap gap-3">
+            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-red-700" /> CEO</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-blue-600" /> Manager</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-yellow-500 bg-yellow-50" /> Admin</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border border-gray-300" /> Team member</span>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-5 bg-blue-600" /> original line</span>
+            <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-5 bg-orange-600" /> your edit (updated)</span>
+          </div>
         </div>
         <button
           type="button"
@@ -334,7 +356,13 @@ function Flow({ cycleId, employees, relationships }: Props) {
       }
       const { data, error } = await supabase
         .from("cycle_relationships")
-        .insert({ cycle_id: cycleId, from_employee_id: source, to_employee_id: target, relationship_type: type })
+        .insert({
+          cycle_id: cycleId,
+          from_employee_id: source,
+          to_employee_id: target,
+          relationship_type: type,
+          origin: "updated",
+        })
         .select("id")
         .single();
       if (error) {
@@ -348,6 +376,7 @@ function Flow({ cycleId, employees, relationships }: Props) {
             from_employee_id: source,
             to_employee_id: target,
             relationship_type: type,
+            origin: "updated",
           }),
           eds,
         ),
@@ -471,11 +500,13 @@ function Flow({ cycleId, employees, relationships }: Props) {
           Tidy layout
         </button>
 
-        <div className="ml-auto hidden flex-wrap items-center gap-3 text-xs text-gray-500 md:flex">
+        <div className="ml-auto hidden flex-wrap items-center gap-3 text-xs text-gray-500 lg:flex">
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-red-700" /> CEO</span>
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-blue-600" /> Manager</span>
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-yellow-500 bg-yellow-50" /> Admin</span>
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border border-gray-300" /> Team</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-blue-600" /> original</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-orange-600" /> edit</span>
         </div>
       </div>
 
