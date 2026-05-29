@@ -15,7 +15,7 @@ export default async function GraphPage() {
   const supabase = await createClient();
   const { data: employees } = await supabase
     .from("employees")
-    .select("id,first_name,last_name,division,role")
+    .select("id,first_name,last_name,division,role,is_super_admin")
     .eq("is_active", true)
     .order("division")
     .order("last_name");

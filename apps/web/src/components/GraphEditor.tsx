@@ -30,6 +30,7 @@ type Emp = {
   last_name: string;
   division: string | null;
   role: string;
+  is_super_admin: boolean;
 };
 type Rel = {
   id: string;
@@ -39,13 +40,65 @@ type Rel = {
 };
 type Props = { cycleId: string; employees: Emp[]; relationships: Rel[] };
 
-// Custom node: 4 handles. Top/bottom carry the vertical "manages" edges; left/right
-// carry the horizontal "peer" edges so peers connect mid-to-mid in a straight line.
+const NODE_W = 200;
+const X_STEP = 240;
+const Y_STEP = 130;
+
+// Tidy top-down layout from the "manages" edges only: managers above their reports,
+// parents centered over children, siblings (incl. peers) side-by-side — never stacked.
+// People with no manager and no reports drop into a grid below the tree(s).
+function computeLayout(emps: Emp[], manages: { from: string; to: string }[]): Map<string, { x: number; y: number }> {
+  const ids = new Set(emps.map((e) => e.id));
+  const childrenOf = new Map<string, string[]>();
+  const parentOf = new Map<string, string>();
+  for (const m of manages) {
+    if (!ids.has(m.from) || !ids.has(m.to)) continue;
+    (childrenOf.get(m.from) ?? childrenOf.set(m.from, []).get(m.from)!).push(m.to);
+    parentOf.set(m.to, m.from);
+  }
+  const pos = new Map<string, { x: number; y: number }>();
+  const visited = new Set<string>();
+  let leaf = 0;
+  const place = (id: string, depth: number): number => {
+    visited.add(id);
+    const kids = (childrenOf.get(id) ?? []).filter((k) => ids.has(k) && !visited.has(k));
+    let x: number;
+    if (kids.length === 0) {
+      x = leaf * X_STEP;
+      leaf++;
+    } else {
+      const xs = kids.map((k) => place(k, depth + 1));
+      x = (xs[0] + xs[xs.length - 1]) / 2;
+    }
+    pos.set(id, { x, y: depth * Y_STEP });
+    return x;
+  };
+  // tree roots: a manager/CEO with no manager of their own
+  emps
+    .filter((e) => !parentOf.has(e.id) && (childrenOf.get(e.id)?.length ?? 0) > 0)
+    .forEach((e) => place(e.id, 0));
+  // everyone left over (unconnected, or peer-only) → grid below the deepest tree row
+  let maxY = 0;
+  pos.forEach((p) => (maxY = Math.max(maxY, p.y)));
+  const top = pos.size ? maxY + Y_STEP * 1.4 : 0;
+  const perRow = Math.max(6, Math.ceil(Math.sqrt(emps.length)));
+  let i = 0;
+  for (const e of emps) {
+    if (pos.has(e.id)) continue;
+    pos.set(e.id, { x: (i % perRow) * X_STEP, y: top + Math.floor(i / perRow) * 84 });
+    i++;
+  }
+  return pos;
+}
+
+// Custom node: 4 handles. Top/bottom carry vertical "manages" edges; left/right carry
+// horizontal "peer" edges so peers connect mid-to-mid. Admins get a yellow border.
 function PersonNode({ data, selected }: NodeProps) {
-  const label = (data as { label?: string }).label ?? "";
-  const role = (data as { role?: string }).role ?? "ic";
-  const border =
-    role === "ceo"
+  const d = data as { label?: string; role?: string; admin?: boolean };
+  const role = d.role ?? "ic";
+  const border = d.admin
+    ? "2px solid #eab308"
+    : role === "ceo"
       ? "2px solid #b91c1c"
       : role === "manager"
         ? "2px solid #2563eb"
@@ -54,10 +107,10 @@ function PersonNode({ data, selected }: NodeProps) {
     <div
       style={{
         fontSize: 11,
-        width: 200,
+        width: NODE_W,
         padding: "6px 8px",
         borderRadius: 8,
-        background: "white",
+        background: d.admin ? "#fefce8" : "white",
         border,
         boxShadow: selected ? "0 0 0 3px rgba(37,99,235,0.45)" : undefined,
       }}
@@ -66,7 +119,7 @@ function PersonNode({ data, selected }: NodeProps) {
       <Handle type="source" id="b" position={Position.Bottom} style={{ background: "#2563eb" }} />
       <Handle type="target" id="l" position={Position.Left} style={{ background: "#6b7280" }} />
       <Handle type="source" id="r" position={Position.Right} style={{ background: "#6b7280" }} />
-      {label}
+      {d.label}
     </div>
   );
 }
@@ -79,11 +132,11 @@ function relToEdge(r: Rel): Edge {
     id: r.id,
     source: r.from_employee_id,
     target: r.to_employee_id,
-    // manages: bottom -> top (vertical); peer: right -> left (horizontal, mid-to-mid)
     sourceHandle: peer ? "r" : "b",
     targetHandle: peer ? "l" : "t",
     type: peer ? "straight" : "smoothstep",
     animated: !peer,
+    data: { rel: r.relationship_type },
     style: peer ? { stroke: "#6b7280", strokeDasharray: "6 4" } : { stroke: "#2563eb" },
     markerEnd: peer ? undefined : { type: MarkerType.ArrowClosed, color: "#2563eb" },
     label: r.relationship_type,
@@ -91,47 +144,197 @@ function relToEdge(r: Rel): Edge {
   };
 }
 
+const edgeRel = (e: Edge): string | undefined => (e.data as { rel?: string } | undefined)?.rel;
+
+// Autocomplete person picker used by the relationship builder.
+function PersonPicker({
+  employees,
+  onPick,
+  placeholder,
+  excludeId,
+}: {
+  employees: Emp[];
+  onPick: (id: string | null) => void;
+  placeholder: string;
+  excludeId?: string | null;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const matches = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return employees
+      .filter((e) => e.id !== excludeId)
+      .filter((e) => !s || `${e.first_name} ${e.last_name} ${e.division ?? ""}`.toLowerCase().includes(s))
+      .slice(0, 8);
+  }, [q, employees, excludeId]);
+  return (
+    <div className="relative">
+      <input
+        value={q}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => {
+          setQ(e.target.value);
+          onPick(null);
+          setOpen(true);
+        }}
+        className="w-44 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none"
+      />
+      {open && matches.length > 0 && (
+        <ul className="absolute z-30 mt-1 max-h-64 w-56 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+          {matches.map((e) => (
+            <li key={e.id}>
+              <button
+                type="button"
+                onMouseDown={() => {
+                  setQ(`${e.last_name}, ${e.first_name}`);
+                  onPick(e.id);
+                  setOpen(false);
+                }}
+                className="block w-full px-3 py-1.5 text-left text-xs hover:bg-gray-100"
+              >
+                <span className="text-gray-900">
+                  {e.last_name}, {e.first_name}
+                </span>
+                <span className="text-gray-400">
+                  {" · "}
+                  {e.division ?? "—"}
+                  {e.role !== "ic" ? ` · ${e.role}` : ""}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function HelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="mb-1 text-lg font-semibold text-gray-900">How to build the feedback graph</h2>
+        <p className="mb-4 text-sm text-gray-500">Define who gives feedback to whom for this cycle.</p>
+        <ol className="space-y-3 text-sm text-gray-700">
+          <li>
+            <span className="font-medium">Use the builder (easiest).</span> Pick a person, choose{" "}
+            <span className="rounded bg-blue-100 px-1 text-blue-700">manages</span> or{" "}
+            <span className="rounded bg-gray-200 px-1">is a peer with</span>, pick the second person, then{" "}
+            <span className="font-medium">Add</span>.
+            <div className="mt-1 text-xs text-gray-500">
+              e.g. “Nováková, Anna <em>manages</em> Svoboda, Petr” · “Dvořák, Eva <em>is a peer with</em> Jan, Mikeš”.
+            </div>
+          </li>
+          <li>
+            <span className="font-medium">Or draw on the canvas.</span> Drag from one node to another — it uses the
+            relationship currently selected in the builder.
+          </li>
+          <li>
+            <span className="font-medium">manages</span> = blue arrow, drawn top → bottom.{" "}
+            <span className="font-medium">peer</span> = grey dashed line, side-to-side. A peer link is shared — it
+            exists once per pair (no need to add it both ways).
+          </li>
+          <li>
+            Click a line and press <span className="font-medium">Backspace / Delete</span> to remove it.
+          </li>
+          <li>
+            <span className="font-medium">Find person</span> jumps to someone. <span className="font-medium">Tidy
+            layout</span> re-arranges everyone into a clean hierarchy.
+          </li>
+        </ol>
+        <div className="mt-4 flex flex-wrap gap-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-red-700" /> CEO</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-blue-600" /> Manager</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-yellow-500 bg-yellow-50" /> Admin</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border border-gray-300" /> Team member</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-gray-900 py-2 text-sm font-medium text-white hover:bg-gray-700"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Flow({ cycleId, employees, relationships }: Props) {
   const supabase = useMemo(() => createClient(), []);
-  const { setCenter } = useReactFlow();
+  const { setCenter, fitView } = useReactFlow();
   const [edgeType, setEdgeType] = useState<RelationshipType>("manages");
   const [msg, setMsg] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [aId, setAId] = useState<string | null>(null);
+  const [bId, setBId] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
+  const [showHelp, setShowHelp] = useState(relationships.length === 0);
 
   const initialNodes: Node[] = useMemo(() => {
-    const divs = Array.from(new Set(employees.map((e) => e.division ?? "—")));
-    const rowByDiv: Record<string, number> = {};
-    return employees.map((e) => {
-      const d = e.division ?? "—";
-      const col = divs.indexOf(d);
-      const row = (rowByDiv[d] = (rowByDiv[d] ?? 0) + 1) - 1;
-      return {
-        id: e.id,
-        type: "person",
-        position: { x: col * 280, y: row * 84 },
-        data: {
-          label: `${e.last_name}, ${e.first_name}${e.role !== "ic" ? ` · ${e.role}` : ""}`,
-          role: e.role,
-        },
-      } satisfies Node;
-    });
-  }, [employees]);
+    const manages = relationships
+      .filter((r) => r.relationship_type === "manages")
+      .map((r) => ({ from: r.from_employee_id, to: r.to_employee_id }));
+    const pos = computeLayout(employees, manages);
+    return employees.map((e) => ({
+      id: e.id,
+      type: "person",
+      position: pos.get(e.id) ?? { x: 0, y: 0 },
+      data: {
+        label: `${e.last_name}, ${e.first_name}${e.role !== "ic" ? ` · ${e.role}` : ""}${e.is_super_admin ? " · admin" : ""}`,
+        role: e.role,
+        admin: e.is_super_admin,
+      },
+    } satisfies Node));
+  }, [employees, relationships]);
+
+  // de-dupe peers to a single link per pair when loading existing relationships
+  const initialEdges: Edge[] = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Edge[] = [];
+    for (const r of relationships) {
+      if (r.relationship_type === "peer") {
+        const key = [r.from_employee_id, r.to_employee_id].sort().join("|");
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+      out.push(relToEdge(r));
+    }
+    return out;
+  }, [relationships]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(relationships.map(relToEdge));
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  const onConnect = useCallback(
-    async (c: Connection) => {
-      if (!c.source || !c.target || c.source === c.target) return;
+  const createEdge = useCallback(
+    async (source: string, target: string, type: RelationshipType) => {
+      if (!source || !target || source === target) return;
       setMsg(null);
+      if (type === "peer") {
+        const dup = edges.some(
+          (e) =>
+            edgeRel(e) === "peer" &&
+            ((e.source === source && e.target === target) || (e.source === target && e.target === source)),
+        );
+        if (dup) {
+          setMsg("Those two are already peers — a peer link exists once per pair.");
+          return;
+        }
+      } else {
+        const dup = edges.some((e) => edgeRel(e) === "manages" && e.source === source && e.target === target);
+        if (dup) {
+          setMsg('That "manages" link already exists.');
+          return;
+        }
+      }
       const { data, error } = await supabase
         .from("cycle_relationships")
-        .insert({
-          cycle_id: cycleId,
-          from_employee_id: c.source,
-          to_employee_id: c.target,
-          relationship_type: edgeType,
-        })
+        .insert({ cycle_id: cycleId, from_employee_id: source, to_employee_id: target, relationship_type: type })
         .select("id")
         .single();
       if (error) {
@@ -142,15 +345,22 @@ function Flow({ cycleId, employees, relationships }: Props) {
         addEdge(
           relToEdge({
             id: (data as { id: string }).id,
-            from_employee_id: c.source!,
-            to_employee_id: c.target!,
-            relationship_type: edgeType,
+            from_employee_id: source,
+            to_employee_id: target,
+            relationship_type: type,
           }),
           eds,
         ),
       );
     },
-    [supabase, cycleId, edgeType, setEdges],
+    [edges, supabase, cycleId, setEdges],
+  );
+
+  const onConnect = useCallback(
+    (c: Connection) => {
+      if (c.source && c.target) void createEdge(c.source, c.target, edgeType);
+    },
+    [createEdge, edgeType],
   );
 
   const onEdgesDelete = useCallback(
@@ -163,13 +373,35 @@ function Flow({ cycleId, employees, relationships }: Props) {
     [supabase],
   );
 
+  const addRelationship = useCallback(async () => {
+    if (!aId || !bId) {
+      setMsg("Pick both people.");
+      return;
+    }
+    if (aId === bId) {
+      setMsg("Pick two different people.");
+      return;
+    }
+    await createEdge(aId, bId, edgeType);
+    setAId(null);
+    setBId(null);
+    setResetKey((k) => k + 1);
+  }, [aId, bId, edgeType, createEdge]);
+
+  const relayout = useCallback(() => {
+    const manages = edges
+      .filter((e) => edgeRel(e) === "manages")
+      .map((e) => ({ from: e.source, to: e.target }));
+    const pos = computeLayout(employees, manages);
+    setNodes((nds) => nds.map((n) => ({ ...n, position: pos.get(n.id) ?? n.position })));
+    requestAnimationFrame(() => fitView({ duration: 600 }));
+  }, [edges, employees, setNodes, fitView]);
+
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return employees
-      .filter((e) =>
-        `${e.first_name} ${e.last_name} ${e.division ?? ""}`.toLowerCase().includes(q),
-      )
+      .filter((e) => `${e.first_name} ${e.last_name} ${e.division ?? ""}`.toLowerCase().includes(q))
       .slice(0, 8);
   }, [query, employees]);
 
@@ -177,7 +409,7 @@ function Flow({ cycleId, employees, relationships }: Props) {
     (id: string) => {
       const n = nodes.find((x) => x.id === id);
       if (!n) return;
-      setCenter(n.position.x + 100, n.position.y + 18, { zoom: 1.4, duration: 600 });
+      setCenter(n.position.x + NODE_W / 2, n.position.y + 18, { zoom: 1.4, duration: 600 });
       setNodes((nds) => nds.map((x) => ({ ...x, selected: x.id === id })));
       setQuery("");
     },
@@ -186,6 +418,7 @@ function Flow({ cycleId, employees, relationships }: Props) {
 
   return (
     <div className="flex h-screen flex-col">
+      {/* Row 1: nav, find, help, tidy, legend */}
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-2 text-sm">
         <a href="/admin" className="text-gray-500 hover:text-gray-900">
           ← Admin
@@ -196,11 +429,11 @@ function Flow({ cycleId, employees, relationships }: Props) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search people…"
-            className="w-52 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none"
+            placeholder="Find person…"
+            className="w-44 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none"
           />
           {matches.length > 0 && (
-            <ul className="absolute z-20 mt-1 max-h-72 w-64 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+            <ul className="absolute z-30 mt-1 max-h-72 w-64 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
               {matches.map((e) => (
                 <li key={e.id}>
                   <button
@@ -223,29 +456,62 @@ function Flow({ cycleId, employees, relationships }: Props) {
           )}
         </div>
 
-        <span className="hidden text-xs text-gray-400 lg:inline">
-          peers connect side-to-side · manages connects top→bottom · select an edge + Backspace to remove
-        </span>
+        <button
+          type="button"
+          onClick={() => setShowHelp(true)}
+          className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+        >
+          ? How to use
+        </button>
+        <button
+          type="button"
+          onClick={relayout}
+          className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+        >
+          Tidy layout
+        </button>
 
-        <div className="ml-auto flex items-center gap-1">
-          <span className="text-xs text-gray-500">New edge:</span>
+        <div className="ml-auto hidden flex-wrap items-center gap-3 text-xs text-gray-500 md:flex">
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-red-700" /> CEO</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-blue-600" /> Manager</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border-2 border-yellow-500 bg-yellow-50" /> Admin</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded border border-gray-300" /> Team</span>
+        </div>
+      </div>
+
+      {/* Row 2: sentence-style relationship builder */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm">
+        <span className="text-xs font-medium text-gray-500">Add relationship:</span>
+        <PersonPicker key={`a${resetKey}`} employees={employees} onPick={setAId} placeholder="Search person…" excludeId={bId} />
+        <div className="flex overflow-hidden rounded-md border border-gray-300">
           <button
             type="button"
             onClick={() => setEdgeType("manages")}
-            className={`rounded px-2 py-1 text-xs ${edgeType === "manages" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
+            className={`px-2 py-1 text-xs ${edgeType === "manages" ? "bg-blue-600 text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
           >
             manages
           </button>
           <button
             type="button"
             onClick={() => setEdgeType("peer")}
-            className={`rounded px-2 py-1 text-xs ${edgeType === "peer" ? "bg-gray-800 text-white" : "bg-gray-100 text-gray-700"}`}
+            className={`px-2 py-1 text-xs ${edgeType === "peer" ? "bg-gray-800 text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
           >
-            peer
+            is a peer with
           </button>
         </div>
+        <PersonPicker key={`b${resetKey}`} employees={employees} onPick={setBId} placeholder="Search person…" excludeId={aId} />
+        <button
+          type="button"
+          onClick={addRelationship}
+          className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700"
+        >
+          Add
+        </button>
+        <span className="text-xs text-gray-400">Letters = people. The selected verb applies to canvas drags too.</span>
       </div>
+
       {msg && <div className="bg-red-50 px-4 py-1 text-xs text-red-700">{msg}</div>}
+
       <div className="min-h-0 flex-1">
         <ReactFlow
           nodes={nodes}
@@ -264,6 +530,8 @@ function Flow({ cycleId, employees, relationships }: Props) {
           <MiniMap pannable zoomable />
         </ReactFlow>
       </div>
+
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
 }
